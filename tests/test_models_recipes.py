@@ -64,7 +64,7 @@ def test_recipe_env_and_order(call, world):
     job = next(j for j in world.jobs.values() if "start.sh" in j["cmd"] and j["node"] == "spark2")
     env = job["env"]
     assert env["PROM_ROLE"] == "worker" and env["PROM_HEAD"] == "spark1" and env["PROM_HEAD_IP"] == "10.100.36.1"
-    assert env["SPARK_NODE"] == "Spark2"
+    assert env["SPARK_NODE"] == "spark2"  # the recipe's own reference, passed through
     call("deploy_stop", {"recipe": "glm53-tp3"})
 
 
@@ -146,3 +146,67 @@ def test_health_script_gates_readiness(call, services, world, monkeypatch):
                         lambda cmd, timeout=30.0, stdin=None: __import__("prometheus_hoard.transport", fromlist=["RunResult"]).RunResult(0, '{"ready": false, "state": "starting"}\n', ""))
     res = services.recipes.ready(r)
     assert res["up"] is False and "not ready" in res["error"]
+
+
+def _with_health_script(call, services, name="hs"):
+    definition = {"nodes": ["spark1"], "head": "spark1", "port": 8020, "served_model_name": "hs-model",
+                  "scripts": {"start": "start.sh", "stop": "stop.sh", "health": "health.sh"}}
+    call("recipe_write", {"recipe": name, "definition": definition, "scripts": {"start.sh": "echo a", "stop.sh": "echo b", "health.sh": "echo {}"}})
+    return services.recipes.load(name)
+
+
+@pytest.mark.parametrize("rc,out,up", [
+    (1, '{"ready": true}', False),                 # non-zero exit is never ready
+    (0, '{"ok": false, "ready": true}', False),    # ok:false wins
+    (0, '{"ready": false, "state": "loading"}', False),
+    (0, "no json at all", False),
+    (0, '{"ok": true, "ready": true}', True),
+])
+def test_health_script_is_fail_closed(call, services, monkeypatch, rc, out, up):
+    from prometheus_hoard.transport import RunResult
+
+    r = _with_health_script(call, services)
+    monkeypatch.setattr(services.recipes, "http", lambda url, timeout=2.0: (200, {"data": [{"id": "hs-model"}]}) if ":8020/" in url else (0, "x"))
+    node = services.cluster.node("spark1")
+    orig = node.transport.run
+    monkeypatch.setattr(node.transport, "run", lambda cmd, **kw: RunResult(rc, out, "") if "health.sh" in cmd else orig(cmd, **kw))
+    assert services.recipes.ready(r)["up"] is up
+    services.recipes._owned_cache.clear()
+    dep = next(d for d in call("deployments")["deployments"] if d["recipe"] == "hs")
+    assert (dep["state"] == "running") is up
+
+
+def test_an_empty_model_list_is_not_the_recipe(call, services, monkeypatch):
+    monkeypatch.setattr(services.recipes, "http", lambda url, timeout=2.0: (200, {"data": []}) if ":8001/" in url else (0, "x"))
+    dep = next(d for d in call("deployments")["deployments"] if d["recipe"] == "qwen38-27b-1m")
+    assert dep["state"] == "stopped" and "lists no model" in dep["health"]["error"]
+
+
+@pytest.mark.parametrize("state", ["failed", "stopping", "starting"])
+def test_unsettled_recipes_keep_their_sparks(call, services, state):
+    services.recipes._set("qwen38-27b-1m", state=state, nodes=["spark3"])
+    assert "qwen38-27b-1m" in services.recipes.busy_nodes().get("spark3", [])
+    out = call("deploy_start", {"recipe": "glm53-tp3"}, status=409)
+    assert out["conflicts"] == ["qwen38-27b-1m"]
+
+
+def test_a_server_outside_any_recipe_blocks_the_start(call, services, monkeypatch):
+    node = services.cluster.node("spark2")
+    node.metrics["servers"] = [{"engine": "vllm", "model": "/m", "port": 8003, "served_name": "manual", "max_len": 4096, "tp": None, "pid": 7}]
+    monkeypatch.setattr(services.recipes, "http", lambda url, timeout=2.0: (200, {"data": [{"id": "manual"}]}) if ":8003/" in url else (0, "refused"))
+    out = call("deploy_start", {"recipe": "glm53-tp3", "stop_conflicts": True}, status=409)
+    assert out["conflicts"] == ["spark2-8003"] and "outside any recipe" in out["error"]
+
+
+def test_a_second_stop_is_refused_while_the_first_runs(call, services, world):
+    call("deploy_start", {"recipe": "qwen38-27b-1m", "wait": True})
+    world.job_s = 2.0
+    services.recipes.stop("qwen38-27b-1m", wait=False)
+    out = call("deploy_stop", {"recipe": "qwen38-27b-1m"}, status=409)
+    assert out["code"] == "busy"
+    for _ in range(100):
+        if services.recipes.state["qwen38-27b-1m"]["state"] == "stopped":
+            break
+        time.sleep(0.1)
+    assert services.recipes.state["qwen38-27b-1m"]["state"] == "stopped"
+    assert "qwen38-27b-1m" not in services.recipes._stopping

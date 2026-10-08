@@ -153,6 +153,7 @@ const D = {
   link_up: ["Conectado", "Up"],
   link_down: ["Desconectado", "Down"],
   loaded_models: ["Modelos cargados", "Loaded models"],
+  loading_models: ["Cargando", "Loading"],
   none_loaded: ["ninguno", "none"],
   role_head: ["principal", "head"],
   role_worker: ["auxiliar", "worker"],

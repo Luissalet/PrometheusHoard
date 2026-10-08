@@ -184,7 +184,7 @@ function SparkCard({ node: n, samples }) {
           )}
 
           <div className="loaded">
-            <span className="help">{t("loaded_models")}:</span>
+            <span className="help">{(n.deployments || []).some((d) => d.state === "starting") && !(n.deployments || []).some((d) => d.state === "running") ? t("loading_models") : t("loaded_models")}:</span>
             {(n.deployments || []).length ? n.deployments.map((d) => (
               <Chip key={d.recipe} className={d.state === "running" ? "chip-accent" : d.state === "failed" ? "chip-danger" : "chip-amber"}>
                 {d.state !== "running" && d.state !== "failed" && <span className="spinner spinner-xs" />}

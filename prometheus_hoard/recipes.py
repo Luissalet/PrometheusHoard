@@ -66,7 +66,10 @@ class Recipes:
         data = read_json(state_path, default={}) or {}
         self.state: dict[str, dict[str, Any]] = data.get("deployments", {}) if isinstance(data.get("deployments"), dict) else {}
         self._threads: dict[str, threading.Thread] = {}
-        self._ops = threading.RLock()   # checks + registration of a start are atomic with respect to other starts
+        self._ops = threading.RLock()
+        self._owned_cache: dict[str, dict[str, Any]] = {}
+        self._stopping: set[str] = set()
+        self._cancel: set[str] = set()   # checks + registration of a start are atomic with respect to other starts
         self._health: dict[str, dict[str, Any]] = {}
         self._pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="health")
         for name, st in self.state.items():  # a start or stop interrupted by a restart of this app is re-checked, not trusted
@@ -96,7 +99,9 @@ class Recipes:
     def normalize(self, name: str, raw: dict[str, Any], folder: Path) -> dict[str, Any]:
         """Accepts this app's keys and the per-node lifecycle keys some recipes use (``head_node``, ``start_timeout``, ``endpoint``,
         ``scripts``, node names such as ``Spark1``): node references are matched against the Sparks of the settings by id, name or alias."""
-        nodes = [self._node_id(n) for n in raw.get("nodes") or []]
+        refs = [str(n) for n in raw.get("nodes") or []]
+        nodes = [self._node_id(n) for n in refs]
+        node_refs = dict(zip(nodes, refs))   # the recipe's own name for each node (its scripts match on it), whatever the UI calls them
         if not nodes:
             raise SparkError("invalid", f"Recipe {name}: «nodes» is empty.")
         head = self._node_id(raw.get("head") or raw.get("head_node") or nodes[0])
@@ -118,7 +123,7 @@ class Recipes:
         port = int(raw.get("port") or 0) or 8000
         return {
             "name": name, "title": str(raw.get("title") or name), "description": str(raw.get("description") or ""),
-            "nodes": nodes, "head": head, "start_order": order, "port": port, "endpoint": endpoint.rstrip("/"),
+            "nodes": nodes, "node_refs": node_refs, "head": head, "start_order": order, "port": port, "endpoint": endpoint.rstrip("/"),
             "api_path": str(raw.get("api_path") or "/v1"), "health_path": str(raw.get("health_path") or "/v1/models"),
             "served_model_name": str(raw.get("served_model_name") or ""), "model": str(raw.get("model") or raw.get("model_dir") or ""),
             "max_model_len": raw.get("max_model_len"), "engine": str(raw.get("engine") or ("vllm" if raw.get("engine_repo") else "")),
@@ -179,7 +184,9 @@ class Recipes:
             models = [{"id": m.get("id"), "max_model_len": m.get("max_model_len")} for m in body["data"] if isinstance(m, dict)]
         answering = code == 200
         identity = ""
-        if answering and recipe.get("served_model_name") and models:
+        if answering and recipe.get("served_model_name") and not models:
+            identity = f"the port lists no model (expected {recipe['served_model_name']})"
+        elif answering and recipe.get("served_model_name") and models:
             match = [m for m in models if m["id"] == recipe["served_model_name"]]
             if not match:
                 identity = f"the port serves {', '.join(str(m['id']) for m in models)}, not {recipe['served_model_name']}"
@@ -202,21 +209,37 @@ class Recipes:
             return health
         try:
             node = self.cluster.node(recipe["head"])
-            res = node.transport.run(f"cd {q(self.cluster.settings['remote_dir'])}/recipes/{recipe['name']} && SPARK_NODE={q(node.conf['name'])} bash {script}",
+            ref = recipe.get("node_refs", {}).get(node.id, node.conf["name"])
+            res = node.transport.run(f"cd {q(self.cluster.settings['remote_dir'])}/recipes/{recipe['name']} && SPARK_NODE={q(ref)} bash {script}",
                                      timeout=60)
             line = [ln for ln in res.out.splitlines() if ln.strip().startswith("{")]
-            data = json.loads(line[-1]) if line else {}
+            data = json.loads(line[-1]) if line else None
         except (SparkError, ValueError) as exc:
             return {**health, "up": False, "error": f"health.sh: {exc}"}
-        if isinstance(data, dict) and "ready" in data and not data.get("ready"):
-            return {**health, "up": False, "error": "health.sh: not ready" + (f" ({data.get('readiness_error') or data.get('state')})" if data else ""),
-                    "script": data}
+        if res.rc != 0 or not isinstance(data, dict) or data.get("ok") is False or data.get("ready") is not True:
+            why = (data.get("readiness_error") or data.get("error") or data.get("state") or "") if isinstance(data, dict) else ""
+            return {**health, "up": False, "error": f"health.sh: not ready (exit {res.rc}{', ' + str(why) if why else ''})", "script": data}
         return {**health, "script": data}
+
+    def owned(self, recipe: dict[str, Any], timeout: float = 1.5) -> dict[str, Any]:
+        """probe_health plus, for a recipe with health.sh, its verdict on the head (cached 15 s): a port that answers with the right
+        model is still not this recipe's unless its own health script says so (two recipes can share model, port and context)."""
+        health = self.probe_health(recipe, timeout)
+        if not health.get("up") or not recipe.get("scripts", {}).get("health"):
+            return health
+        cached = self._owned_cache.get(recipe["name"])
+        if cached and time.time() - cached["t"] < 15:
+            res = cached["res"]
+        else:
+            res = self.ready(recipe, timeout)
+            self._owned_cache[recipe["name"]] = {"t": time.time(), "res": res}
+        self._health[recipe["name"]] = res
+        return res
 
     def deployments(self, *, check: bool = True) -> list[dict[str, Any]]:
         recipes = [r for r in self.list() if "invalid" not in r]
         if check:
-            list(self._pool.map(lambda r: self.probe_health(r, 1.5), recipes))
+            list(self._pool.map(lambda r: self.owned(r, 1.5), recipes))
         out = []
         for r in recipes:
             st = dict(self.state.get(r["name"], {"state": "stopped"}))
@@ -247,17 +270,21 @@ class Recipes:
 
     def get(self, name: str) -> dict[str, Any]:
         r = self.load(name)
-        health = self.probe_health(r)
+        health = self.owned(r)
         return {**self._view(r, dict(self.state.get(name, {"state": "stopped"})), health), "recipe_def": r}
 
     def busy_nodes(self, exclude: str = "") -> dict[str, list[str]]:
-        """node id -> deployments that use it and are running or starting."""
+        """node id -> what holds it: recipes in any state but stopped (a failed stop or an unknown state keeps its Sparks reserved
+        until a stop confirms them free) and servers running outside any recipe."""
         out: dict[str, list[str]] = {}
-        for d in self.deployments(check=True):
-            if d["recipe"] == exclude or d["state"] not in ("running", "starting"):
+        deps = self.deployments(check=True)
+        for d in deps:
+            if d["recipe"] == exclude or d["state"] == "stopped":
                 continue
             for n in d["nodes"]:
                 out.setdefault(n, []).append(d["recipe"])
+        for x in self.detected(deps):
+            out.setdefault(x["node"], []).append(x["recipe"])
         return out
 
     # ------------------------------------------------------------------ start / stop
@@ -276,12 +303,17 @@ class Recipes:
         if offline:
             raise SparkError("unreachable", f"{', '.join(offline)} not online: {r['title']} cannot start.",
                              hint="Turn them on (power_wake) or wait for them to come back.")
-        health = self.probe_health(r)
+        health = self.owned(r, 3.0)
         if health.get("up"):
             self._set(name, state="running", nodes=r["nodes"], external=True, message="Ya estaba en marcha.")
             return self.get(name)
         busy = self.busy_nodes(exclude=name)
         conflicts = sorted({d for n in r["nodes"] for d in busy.get(n, [])})
+        known = {x["name"] for x in self.list()}
+        foreign = [c for c in conflicts if c not in known]
+        if foreign:
+            raise SparkError("conflict", f"{', '.join(foreign)} runs on those Sparks outside any recipe: it cannot be unloaded from here.",
+                             hint="Stop it where it was started (its container or command), then load again.", conflicts=conflicts)
         if conflicts and not stop_conflicts:
             raise SparkError("conflict", f"{r['title']} needs {', '.join(r['nodes'])}, where {', '.join(conflicts)} is running.",
                              hint="Unload it first, or repeat with stop_conflicts=true to unload it and continue.", conflicts=conflicts)
@@ -313,7 +345,7 @@ class Recipes:
     def _env(self, r: dict[str, Any], node: Node, rank: int) -> dict[str, str]:
         head = self.cluster.node(r["head"])
         env = {
-            "PROM_RECIPE": r["name"], "PROM_NODE": node.id, "SPARK_NODE": node.conf["name"], "PROM_ROLE": "head" if node.id == r["head"] else "worker",
+            "PROM_RECIPE": r["name"], "PROM_NODE": node.id, "SPARK_NODE": r["node_refs"].get(node.id, node.conf["name"]), "PROM_ROLE": "head" if node.id == r["head"] else "worker",
             "PROM_RANK": str(rank), "PROM_NODES": ",".join(r["nodes"]), "PROM_NNODES": str(len(r["nodes"])), "PROM_HEAD": r["head"],
             "PROM_HEAD_HOST": head.api_host(), "PROM_HEAD_IP": (self.cluster.fabric_peer_ip(node, head) or "") if node.id != head.id else "",
             "PROM_PORT": str(r["port"]), "PROM_MODEL": r["model"], "PROM_SERVED_NAME": r["served_model_name"],
@@ -365,6 +397,9 @@ class Recipes:
             j = self.jobs.get(job["id"])
             if j["state"] in ("done", "failed", "cancelled", "lost"):
                 return j
+            if r["name"] in self._cancel and script == r["scripts"]["start"]:
+                self.jobs.cancel(job["id"])
+                raise SparkError("cancelled", f"{r['title']}: start cancelled by a stop.")
             self.sleep(2.0)
         self.jobs.cancel(job["id"])
         return self.jobs.get(job["id"])
@@ -394,7 +429,7 @@ class Recipes:
             self._set(name, step="wait", message="Esperando a que el servidor responda (carga de pesos y compilación)")
             deadline = time.time() + r["ready_timeout_s"]
             while time.time() < deadline:
-                if self.state.get(name, {}).get("state") != "starting":
+                if name in self._cancel or self.state.get(name, {}).get("state") != "starting":
                     return  # stopped meanwhile
                 health = self.ready(r, 3.0)
                 if health.get("up"):
@@ -406,6 +441,8 @@ class Recipes:
             raise SparkError("timeout", f"{r['title']} did not answer on port {r['port']} within {r['ready_timeout_s']} s.",
                              hint="Look at the logs (deploy_logs) on the head.")
         except SparkError as exc:
+            if exc.code == "cancelled" or name in self._cancel:
+                return   # the stop that cancelled it records the state
             self._set(name, state="failed", step="", message=exc.message + (f" — {exc.hint}" if exc.hint else ""))
         except Exception as exc:  # noqa: BLE001 - the worker reports, never dies silently
             log.exception("start %s", name)
@@ -413,9 +450,35 @@ class Recipes:
 
     def stop(self, name: str, *, wait: bool = True) -> dict[str, Any]:
         r = self.load(name)
-        self._set(name, state="stopping", step="stop", message="Parando")
+        with self._lock:
+            current = self._threads.get(name)
+            if name in self._stopping or (current is not None and current.is_alive() and current.name.startswith("stop-")):
+                raise SparkError("busy", f"{r['title']} is already being stopped.")
+            self._stopping.add(name)
+            starting = current if current is not None and current.is_alive() else None
+            if starting is not None:
+                self._cancel.add(name)   # the start worker cancels its running step and leaves
+        try:
+            if starting is not None:
+                starting.join(timeout=120)
+            self._set(name, state="stopping", step="stop", message="Parando")
+        except BaseException:
+            with self._lock:
+                self._stopping.discard(name)
+            raise
+        self._owned_cache.pop(name, None)
 
         def work() -> None:
+            try:
+                stop_all()
+            except Exception as exc:  # noqa: BLE001
+                log.exception("stop %s", name)
+                self._set(name, state="failed", step="", message=str(exc))
+            finally:
+                with self._lock:
+                    self._stopping.discard(name)
+
+        def stop_all() -> None:
             errors = []
             for node_id in reversed(r["start_order"]):
                 try:
@@ -435,13 +498,14 @@ class Recipes:
             else:
                 self._set(name, state="stopped", step="", message="Descargado", external=False, ready_at=None)
 
+        t = threading.Thread(target=work, name=f"stop-{name}", daemon=True)
+        with self._lock:
+            self._threads[name] = t
+        t.start()
         if wait:
-            work()
-        else:
-            t = threading.Thread(target=work, name=f"stop-{name}", daemon=True)
-            with self._lock:
-                self._threads[name] = t
-            t.start()
+            t.join()
+        with self._lock:
+            self._cancel.discard(name)
         return self.get(name)
 
     def logs(self, name: str, node_id: str = "", lines: int = 200) -> dict[str, Any]:
@@ -449,7 +513,7 @@ class Recipes:
         node = self.cluster.node(node_id or r["head"])
         out: dict[str, Any] = {"recipe": name, "node": node.id}
         if r["scripts"].get("health"):
-            res = node.transport.run(f"cd {q(self.cluster.settings['remote_dir'])}/recipes/{name} && SPARK_NODE={q(node.conf['name'])} bash {r['scripts']['health']} 2>&1 | tail -c 20000",
+            res = node.transport.run(f"cd {q(self.cluster.settings['remote_dir'])}/recipes/{name} && SPARK_NODE={q(r['node_refs'].get(node.id, node.conf['name']))} bash {r['scripts']['health']} 2>&1 | tail -c 20000",
                                      timeout=60)
             out["health"] = res.out
         if r["container"]:
