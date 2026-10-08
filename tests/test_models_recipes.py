@@ -172,6 +172,12 @@ def test_health_script_is_fail_closed(call, services, monkeypatch, rc, out, up):
     monkeypatch.setattr(node.transport, "run", lambda cmd, **kw: RunResult(rc, out, "") if "health.sh" in cmd else orig(cmd, **kw))
     assert services.recipes.ready(r)["up"] is up
     services.recipes._owned_cache.clear()
+    first = next(d for d in call("deployments")["deployments"] if d["recipe"] == "hs")
+    assert first["state"] == "stopped"            # the panel does not wait for health.sh: verifying, the stored state stays
+    for _ in range(50):
+        if "hs" in services.recipes._owned_cache:
+            break
+        time.sleep(0.05)
     dep = next(d for d in call("deployments")["deployments"] if d["recipe"] == "hs")
     assert (dep["state"] == "running") is up
 
@@ -253,3 +259,29 @@ def test_a_stop_never_confirms_while_the_start_is_still_inside_a_step(call, serv
     stuck.join()
     out = call("deploy_stop", {"recipe": "qwen38-27b-1m"})
     assert out["state"] == "stopped"
+
+
+def test_the_panel_never_waits_for_a_slow_health_script(call, services, monkeypatch):
+    from prometheus_hoard.transport import RunResult
+
+    _with_health_script(call, services, "slow")
+    monkeypatch.setattr(services.recipes, "http", lambda url, timeout=2.0: (200, {"data": [{"id": "hs-model"}]}) if ":8020/" in url else (0, "x"))
+    node = services.cluster.node("spark1")
+    orig = node.transport.run
+
+    def slow(cmd, **kw):
+        if "health.sh" in cmd:
+            time.sleep(1.5)
+            return RunResult(0, '{"ok": true, "ready": true}', "")
+        return orig(cmd, **kw)
+
+    monkeypatch.setattr(node.transport, "run", slow)
+    t0 = time.time()
+    call("deployments")
+    assert time.time() - t0 < 1.0
+    for _ in range(60):
+        if "slow" in services.recipes._owned_cache:
+            break
+        time.sleep(0.05)
+    dep = next(d for d in call("deployments")["deployments"] if d["recipe"] == "slow")
+    assert dep["state"] == "running" and dep["external"]

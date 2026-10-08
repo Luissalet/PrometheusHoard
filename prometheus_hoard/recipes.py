@@ -68,6 +68,8 @@ class Recipes:
         self._threads: dict[str, threading.Thread] = {}
         self._ops = threading.RLock()
         self._owned_cache: dict[str, dict[str, Any]] = {}
+        self._owned_inflight: set[str] = set()
+        self._bg = ThreadPoolExecutor(max_workers=3, thread_name_prefix="health-bg")   # health.sh over SSH, off the panels' path
         self._stopping: set[str] = set()
         self.cancel_wait_s = 120.0   # how long a stop waits for a start to leave its current step
         self._cancel: set[str] = set()   # checks + registration of a start are atomic with respect to other starts
@@ -222,31 +224,60 @@ class Recipes:
             return {**health, "up": False, "error": f"health.sh: not ready (exit {res.rc}{', ' + str(why) if why else ''})", "script": data}
         return {**health, "script": data}
 
-    def owned(self, recipe: dict[str, Any], timeout: float = 1.5) -> dict[str, Any]:
+    def owned(self, recipe: dict[str, Any], timeout: float = 1.5, *, wait: bool = True) -> dict[str, Any]:
         """probe_health plus, for a recipe with health.sh, its verdict on the head (cached 15 s): a port that answers with the right
-        model is still not this recipe's unless its own health script says so (two recipes can share model, port and context)."""
+        model is still not this recipe's unless its own health script says so (two recipes can share model, port and context).
+
+        ``wait=False`` (the panels) never waits for the script over SSH: a stale verdict is refreshed in the background and the last
+        one is shown meanwhile; with none yet the result says ``verifying`` (not up: fail closed) and callers keep the stored state."""
         health = self.probe_health(recipe, timeout)
         if not health.get("up") or not recipe.get("scripts", {}).get("health"):
             return health
-        cached = self._owned_cache.get(recipe["name"])
+        name = recipe["name"]
+        cached = self._owned_cache.get(name)
         if cached and time.time() - cached["t"] < 15:
             res = cached["res"]
-        else:
+        elif wait:
             res = self.ready(recipe, timeout)
-            self._owned_cache[recipe["name"]] = {"t": time.time(), "res": res}
-        self._health[recipe["name"]] = res
+            self._owned_cache[name] = {"t": time.time(), "res": res}
+        else:
+            self._refresh_owned(recipe, timeout)
+            res = cached["res"] if cached else {**health, "up": False, "verifying": True}
+        self._health[name] = res
         return res
+
+    def _refresh_owned(self, recipe: dict[str, Any], timeout: float) -> None:
+        name = recipe["name"]
+        with self._lock:
+            if name in self._owned_inflight:
+                return
+            self._owned_inflight.add(name)
+
+        def run() -> None:
+            try:
+                res = self.ready(recipe, timeout)
+                self._owned_cache[name] = {"t": time.time(), "res": res}
+                self._health[name] = res
+            except Exception:  # noqa: BLE001 - the next panel refresh tries again
+                log.exception("health %s", name)
+            finally:
+                with self._lock:
+                    self._owned_inflight.discard(name)
+
+        self._bg.submit(run)
 
     def deployments(self, *, check: bool = True) -> list[dict[str, Any]]:
         recipes = [r for r in self.list() if "invalid" not in r]
         if check:
-            list(self._pool.map(lambda r: self.owned(r, 1.5), recipes))
+            list(self._pool.map(lambda r: self.owned(r, 1.5, wait=False), recipes))
         out = []
         for r in recipes:
             st = dict(self.state.get(r["name"], {"state": "stopped"}))
             health = self._health.get(r["name"], {})
             state = st.get("state", "stopped")
-            if health.get("up") and state in ("stopped", "unknown", "failed"):
+            if health.get("verifying"):
+                pass   # its health script has not answered yet: keep the stored state until it does
+            elif health.get("up") and state in ("stopped", "unknown", "failed"):
                 state = "running"
                 st["external"] = True
             elif state == "running" and health and not health.get("up"):
@@ -271,7 +302,7 @@ class Recipes:
 
     def get(self, name: str) -> dict[str, Any]:
         r = self.load(name)
-        health = self.owned(r)
+        health = self.owned(r, wait=False)
         return {**self._view(r, dict(self.state.get(name, {"state": "stopped"})), health), "recipe_def": r}
 
     def busy_nodes(self, exclude: str = "") -> dict[str, list[str]]:
@@ -642,3 +673,4 @@ class Recipes:
 
     def close(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)
+        self._bg.shutdown(wait=False, cancel_futures=True)
