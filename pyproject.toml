@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prometheus-hoard"
+version = "0.1.0"
+description = "Runs a cluster of DGX Spark computers from Windows: each Spark as a drive, a live panel, models on disk and loaded through recipes, and the power menu."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Luissalet" }]
+dependencies = ["fastapi>=0.115", "uvicorn>=0.30", "pydantic>=2.7", "httpx>=0.27", "mcp>=1.10,<2", "paramiko>=3.4", "python-multipart>=0.0.9"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+prometheus-hoard = "prometheus_hoard.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["prometheus_hoard*"]
+
+[tool.setuptools.package-data]
+prometheus_hoard = ["static/**/*", "remote/*.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
