@@ -30,7 +30,7 @@ venv\Scripts\python -m prometheus_hoard        # http://127.0.0.1:5205
 
 Las Sparks se alcanzan con la configuración SSH del PC (`~/.ssh/config` y sus `Include`; NVIDIA Sync escribe ahí los alias `Spark1`..`Spark3`). En Ajustes cada Spark puede tener otra dirección o un salto intermedio. `PROMETHEUS_FAKE=1` arranca un clúster inventado de tres Sparks para probar la interfaz sin hardware.
 
-El puente MCP es `python mcp_server.py` (40 herramientas). Las destructivas (borrado permanente, vaciar la papelera, borrar un modelo, encendido, comandos) piden `confirm=true`.
+El puente MCP es `python mcp_server.py` (37 herramientas). Las destructivas (borrado permanente, vaciar la papelera, borrar un modelo, encendido, comandos) piden `confirm=true`.
 
 ## Qué no hace
 

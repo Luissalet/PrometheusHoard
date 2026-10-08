@@ -30,7 +30,7 @@ venv\Scripts\python -m prometheus_hoard        # http://127.0.0.1:5205
 
 The Sparks are reached with the SSH configuration of the PC (`~/.ssh/config` and its `Include`s; NVIDIA Sync writes the `Spark1`..`Spark3` aliases there). In Ajustes each Spark can have a different address or a jump host. `PROMETHEUS_FAKE=1` starts an invented three-Spark cluster in a temporary folder, for trying the interface without hardware.
 
-The MCP bridge is `python mcp_server.py` (40 tools; `faustus-plugin.json` describes it for Faustus and the Hoard Hub). Destructive tools (permanent deletes, emptying the trash, deleting a model, power actions, shell commands) need `confirm=true`.
+The MCP bridge is `python mcp_server.py` (37 tools; `faustus-plugin.json` describes it for Faustus and the Hoard Hub). Destructive tools (permanent deletes, emptying the trash, deleting a model, power actions, shell commands) need `confirm=true`.
 
 ## What it cannot do
 
