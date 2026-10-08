@@ -15,7 +15,8 @@ export default function Equipo() {
   const hist = useHistories(nodes.filter((n) => n.online).map((n) => n.id), 5, 2000);
   if (!ov) return <div className="flex items-center gap-2 help"><Spinner /> {t("loading")}</div>;
   const c = ov.cluster || {};
-  const loaded = (ov.deployments || []).filter((d) => d.state === "running");
+  // recipes that serve plus servers started outside a recipe that answer: both are loaded models
+  const loaded = [...(ov.deployments || []).filter((d) => d.state === "running"), ...(ov.detected || []).filter((x) => x.up)];
   return (
     <div className="space-y-6">
       <header className="page-head">
