@@ -7,6 +7,26 @@ export function num(value, digits = 0, lang = "es") {
   return Number(value).toLocaleString(locale(lang), { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: "always" });
 }
 
+/** A large count as "842", "34,5 k", "1,2 M", "3,4 G" (decimal prefixes: tokens are counted, not stored). */
+export function compact(value, lang = "es") {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+  const v = Number(value);
+  if (Math.abs(v) < 1000) return num(v, 0, lang);
+  const units = ["k", "M", "G", "T"];
+  let x = v / 1000;
+  let i = 0;
+  while (Math.abs(x) >= 1000 && i < units.length - 1) { x /= 1000; i += 1; }
+  return `${num(x, Math.abs(x) >= 100 ? 0 : 1, lang)} ${units[i]}`;
+}
+
+/** Seconds as "420 ms" under a second, "1,3 s" above. */
+export function latency(seconds, lang = "es") {
+  if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) return "—";
+  const v = Number(seconds);
+  if (v < 1) return `${num(v * 1000, v < 0.1 ? 1 : 0, lang)} ms`;
+  return `${num(v, 1, lang)} s`;
+}
+
 export function pct(value, lang = "es", digits = 0) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
   return `${num(value, digits, lang)} %`;

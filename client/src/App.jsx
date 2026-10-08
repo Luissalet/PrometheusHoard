@@ -6,6 +6,7 @@ import { createSerialPoll } from "./polling.js";
 import { ConfirmDialog, Icon, ICONS } from "./components/ui.jsx";
 import Equipo from "./pages/Equipo.jsx";
 import Spark from "./pages/Spark.jsx";
+import Sirviendo from "./pages/Sirviendo.jsx";
 import Archivos from "./pages/Archivos.jsx";
 import Modelos from "./pages/Modelos.jsx";
 import Ajustes from "./pages/Ajustes.jsx";
@@ -15,6 +16,7 @@ export { useApp } from "./context.js";
 const PAGES = [
   { path: "", key: "nav_cluster", icon: ICONS.computer, component: Equipo, fast: true },
   { path: "spark", key: "nav_cluster", icon: ICONS.computer, component: Spark, hidden: true, parent: "", fast: true },
+  { path: "sirviendo", key: "nav_serving", icon: ICONS.activity, component: Sirviendo, fast: true },
   { path: "archivos", key: "nav_files", icon: ICONS.folder, component: Archivos },
   { path: "modelos", key: "nav_models", icon: ICONS.models, component: Modelos, badge: "work" },
   { path: "ajustes", key: "nav_settings", icon: ICONS.settings, component: Ajustes },

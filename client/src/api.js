@@ -66,6 +66,7 @@ export const api = {
   health: () => request("GET", "/api/health"),
   overview: (detail = false) => request("GET", "/api/overview", { params: { detail: detail ? 1 : 0 } }),
   history: (node, minutes = 10) => request("GET", `/api/nodes/${encodeURIComponent(node)}/history`, { params: { minutes } }),
+  serving: () => request("GET", "/api/serving"),
   endpoints: () => request("GET", "/api/endpoints"),
   downloadUrl: (node, path) => fileUrl("download", node, path),
   rawUrl: (node, path) => fileUrl("raw", node, path),
