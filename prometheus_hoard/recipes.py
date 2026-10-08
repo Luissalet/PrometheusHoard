@@ -557,22 +557,29 @@ class Recipes:
                     taken.add((n, d["port"]))
         found = []
         claimed = {n for d in deployments if d["state"] != "stopped" for n in d["nodes"]}
+        candidates = []
         for node in self.cluster.enabled():
             for srv in (node.metrics or {}).get("servers", []):
                 port = srv.get("port")
                 if not port or (node.id, port) in taken or srv.get("engine") not in ("vllm", "sglang", "llama-server", "trtllm"):
                     continue
-                base = f"http://{node.api_host()}:{port}"
-                key = f"{node.id}-{port}"
-                if key not in self._health or time.time() - self._health[key].get("checked", 0) > 10:
-                    code, body = self.http(base + "/v1/models", 1.5)
-                    models = [m.get("id") for m in body.get("data", []) if isinstance(m, dict)] if code == 200 and isinstance(body, dict) else []
-                    self._health[key] = {"up": code == 200, "models": models, "checked": time.time()}
-                h = self._health[key]
-                found.append({"recipe": key, "title": f"{srv.get('served_name') or srv.get('model') or srv.get('engine')} ({node.conf['name']}:{port})",
-                              "node": node.id, "engine": srv.get("engine"), "port": port, "base_url": base + "/v1", "up": h["up"],
-                              "models": h["models"] or ([srv["served_name"]] if srv.get("served_name") else []),
-                              "max_model_len": srv.get("max_len"), "tp": srv.get("tp"), "pid": srv.get("pid"), "nodes": [node.id]})
+                candidates.append((node, srv, f"http://{node.api_host()}:{port}", f"{node.id}-{port}"))
+
+        def probe(item: tuple) -> None:
+            _, _, base, key = item
+            if key not in self._health or time.time() - self._health[key].get("checked", 0) > 10:
+                code, body = self.http(base + "/v1/models", 1.5)
+                models = [m.get("id") for m in body.get("data", []) if isinstance(m, dict)] if code == 200 and isinstance(body, dict) else []
+                self._health[key] = {"up": code == 200, "models": models, "checked": time.time()}
+
+        list(self._pool.map(probe, candidates))   # every server at once: one slow answer must not add up with the others
+        for node, srv, base, key in candidates:
+            port = srv.get("port")
+            h = self._health[key]
+            found.append({"recipe": key, "title": f"{srv.get('served_name') or srv.get('model') or srv.get('engine')} ({node.conf['name']}:{port})",
+                          "node": node.id, "engine": srv.get("engine"), "port": port, "base_url": base + "/v1", "up": h["up"],
+                          "models": h["models"] or ([srv["served_name"]] if srv.get("served_name") else []),
+                          "max_model_len": srv.get("max_len"), "tp": srv.get("tp"), "pid": srv.get("pid"), "nodes": [node.id]})
         self._attach_workers(found, claimed)
         return found
 
