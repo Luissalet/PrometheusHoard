@@ -12,6 +12,10 @@ Runs a small cluster of NVIDIA DGX Spark computers from a Windows PC. Each Spark
 - **Power**: lock, sleep, shut down and restart one Spark or all of them; turning on uses wake-on-LAN with the wired MAC address learnt while the Spark was on. Before a shutdown the models of that Spark are unloaded.
 - **Endpoints for other programs**: `GET /api/endpoints` lists the inference servers running now (the default recipe first). Faustus reads it to use the Sparks as its default backend.
 
+![Archivos](docs/screens/archivos.png)
+
+![Modelos](docs/screens/modelos.png)
+
 ## Recipes
 
 A recipe is a folder with `recipe.json` and the scripts that start and stop a server (`start.sh`, `stop.sh`, optional `health.sh` and `logs.sh`). The recipes folder is a setting (default: `Sparks cluster/recipes` next to this repository). Loading copies the folder to each Spark it uses, runs `start.sh` on each one (the head first unless `start_order` says otherwise) as a detached job, and waits until the head answers on its port. Scripts get `PROM_NODE`, `PROM_ROLE`, `PROM_RANK`, `PROM_HEAD`, `PROM_HEAD_IP` (the head's address on the CX7 cable shared with this Spark), `PROM_PORT`, `PROM_MODEL`, `PROM_SERVED_NAME`, `PROM_MAX_MODEL_LEN`, `PROM_FABRIC_<NODE>` and `SPARK_NODE`. See `prometheus_hoard/recipes.py` for every key.
