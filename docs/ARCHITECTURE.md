@@ -24,3 +24,5 @@ browser / MCP bridge / Faustus
 - **fake.py**: the invented cluster for the demo and the tests.
 
 Data folder (`data/`): `settings.json`, `state.json`, `jobs.json`, `macs.json`, `secrets.json` (Hugging Face token), `mcp-token`, `logs/`.
+
+Recipe measurements pass unchanged through `recipes_list` (UI and MCP). `client/src/measurements.js` formats units and nested fields in Spanish and English; `RecipeMeasurements.jsx` presents a short summary and expandable full observations. This is presentation of recorded evidence, not a runtime context or accuracy certification.

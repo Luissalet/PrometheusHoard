@@ -4,6 +4,7 @@ import { useApp } from "../context.js";
 import { bytes, ctx, elapsed, num, pct, rel } from "../format.js";
 import { Bar, Busy, Chip, CopyButton, Empty, ErrorBox, Field, Icon, ICONS, Modal, Section, Spinner, Tabs, useBusy, useLoad } from "../components/ui.jsx";
 import { usePoll } from "../components/hooks.js";
+import RecipeMeasurements from "../components/RecipeMeasurements.jsx";
 
 const ACTIVE = new Set(["running", "starting", "stopping", "failed", "unknown"]);
 const DEP_TONE = { running: "chip-ok", starting: "chip-amber", stopping: "chip-amber", failed: "chip-danger", unknown: "chip-amber", stopped: "" };
@@ -238,12 +239,7 @@ function RecipeCard({ r, dep, nodes, reload, onLogs }) {
       </dl>
       {(r.tags || []).length > 0 && <div className="flex flex-wrap gap-1">{r.tags.map((x) => <Chip key={x}>{x}</Chip>)}</div>}
       {r.notes && <p className="help" style={{ whiteSpace: "pre-wrap" }}>{r.notes}</p>}
-      {measured && (
-        <div className="measured">
-          <span className="label">{t("measured")}</span>
-          <dl className="facts">{Object.entries(measured).map(([k, v]) => <div key={k}><dt>{k}</dt><dd className="num">{typeof v === "number" ? num(v, Number.isInteger(v) ? 0 : 1, lang) : String(v)}</dd></div>)}</dl>
-        </div>
-      )}
+      {measured && <RecipeMeasurements measured={measured} />}
       {state === "starting" && dep && (
         <div className="banner banner-info flex items-center gap-2"><span className="spinner" />{dep.step ? `${t("step")}: ${dep.step}. ` : ""}{dep.message || t("starting_wait")}</div>
       )}
@@ -350,7 +346,7 @@ function DiskModels({ nodes, onJob }) {
                 {errors[id] && <div className="p-2"><div className="banner banner-danger">{typeof errors[id] === "string" ? errors[id] : JSON.stringify(errors[id])}</div></div>}
                 {!list.length ? <p className="help px-3 py-3">{errors[id] ? "" : t("no_models_here")}</p> : (
                   <>
-                    <div className="hidden md:block scroll-x">
+                    <div className="hidden lg:block scroll-x">
                       <table className="tbl tbl-fixed">
                         <colgroup><col style={{ width: "27%" }} /><col style={{ width: "9%" }} /><col style={{ width: "22%" }} /><col style={{ width: "13%" }} /><col style={{ width: "7%" }} /><col style={{ width: "10%" }} /><col style={{ width: "12rem" }} /></colgroup>
                         <thead><tr><th>{t("col_name")}</th><th className="r">{t("col_size")}</th><th>{t("architecture")}</th><th>{t("quant")}</th><th className="r">{t("context")}</th><th>{t("status")}</th><th /></tr></thead>
@@ -359,7 +355,7 @@ function DiskModels({ nodes, onJob }) {
                             <tr key={m.path}>
                               <td><div className="font-semibold" style={{ overflowWrap: "anywhere" }}>{m.name}</div><div className="help mono">{m.repo || m.path}</div></td>
                               <td className="r num">{bytes(m.bytes, lang)}<div className="help">{t("n_files", { n: m.files ?? "—" })}</div></td>
-                              <td><span className="mono">{(m.architectures || []).join(", ") || m.model_type || "—"}</span>{(m.gguf || []).length > 0 && <Chip className="ml-1">GGUF</Chip>}</td>
+                              <td><span className="mono" style={{ overflowWrap: "anywhere" }}>{(m.architectures || []).join(", ") || m.model_type || "—"}</span>{(m.gguf || []).length > 0 && <Chip className="ml-1">GGUF</Chip>}</td>
                               <td>{m.quant || "—"}</td>
                               <td className="r num">{ctx(m.max_context, lang)}</td>
                               <td>{status(m)}</td>
@@ -369,11 +365,11 @@ function DiskModels({ nodes, onJob }) {
                         </tbody>
                       </table>
                     </div>
-                    <div className="md:hidden divide-list">
+                    <div className="lg:hidden divide-list">
                       {list.map((m) => (
                         <div key={m.path} className="p-3 space-y-1.5">
                           <div className="flex items-start gap-2"><Icon d={ICONS.weights} size={16} /><div className="min-w-0 flex-1"><div className="font-semibold" style={{ overflowWrap: "anywhere" }}>{m.name}</div><div className="help mono" style={{ overflowWrap: "anywhere" }}>{m.repo || m.path}</div></div>{status(m)}</div>
-                          <div className="help">{[bytes(m.bytes, lang), (m.architectures || [])[0] || m.model_type, m.quant, m.max_context ? `${t("context")} ${ctx(m.max_context, lang)}` : null].filter(Boolean).join(" · ")}</div>
+                          <div className="help" style={{ overflowWrap: "anywhere" }}>{[bytes(m.bytes, lang), (m.architectures || [])[0] || m.model_type, m.quant, m.max_context ? `${t("context")} ${ctx(m.max_context, lang)}` : null].filter(Boolean).join(" · ")}</div>
                           {actions(id, m)}
                         </div>
                       ))}
