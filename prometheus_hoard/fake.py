@@ -328,6 +328,20 @@ class FakeTransport:
         return {"id": job["id"], "pid": 1000, "rc": job["rc"], "state": "running" if job["state"] == "running" else ("done" if job["rc"] == 0 else "failed"),
                 "log": log, "watched_bytes": watched, "started": job["start"]}
 
+    def _script_fails(self, cmd: str) -> bool:
+        """A recipe script that says `exit N` (N != 0) fails in the demo too: read it from the copy in the node's folder."""
+        import re as _re
+
+        m = _re.search(r"cd (\S+) && bash (\S+)", cmd)
+        if not m:
+            return False
+        path = Path(self._local(m.group(1).strip("'").replace("~", HOME, 1))) / m.group(2)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return False
+        return bool(_re.search(r"^\s*exit\s+[1-9]", text, _re.M))
+
     def _finish(self, job: dict[str, Any]) -> None:
         job["state"] = "done"
         job["rc"] = 0
@@ -338,7 +352,7 @@ class FakeTransport:
             d.mkdir(parents=True, exist_ok=True)
             (d / "config.json").write_text(json.dumps({"architectures": ["DemoForCausalLM"], "model_type": "demo", "max_position_embeddings": 131072}))
             (d / "model.safetensors").write_bytes(b"\0" * 6144)
-        if "fail.sh" in cmd or "exit 3" in cmd:
+        if "fail.sh" in cmd or "exit 3" in cmd or self._script_fails(cmd):
             job["state"], job["rc"] = "failed", 3
         recipe = env.get("PROM_RECIPE")
         if recipe and "start.sh" in cmd:

@@ -66,6 +66,7 @@ class Recipes:
         data = read_json(state_path, default={}) or {}
         self.state: dict[str, dict[str, Any]] = data.get("deployments", {}) if isinstance(data.get("deployments"), dict) else {}
         self._threads: dict[str, threading.Thread] = {}
+        self._ops = threading.RLock()   # checks + registration of a start are atomic with respect to other starts
         self._health: dict[str, dict[str, Any]] = {}
         self._pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="health")
         for name, st in self.state.items():  # a start or stop interrupted by a restart of this app is re-checked, not trusted
@@ -166,6 +167,8 @@ class Recipes:
         return f"http://{head.api_host()}:{recipe['port']}"
 
     def probe_health(self, recipe: dict[str, Any], timeout: float = 2.0) -> dict[str, Any]:
+        """Is THIS recipe serving? An answer on the port is not enough: two recipes can share a head and a port (TP=2 and TP=3 of the same
+        model), so the server must also serve the recipe's model name and, when both are known, the recipe's context length."""
         try:
             base = self.base_url(recipe)
         except SparkError:
@@ -174,11 +177,41 @@ class Recipes:
         models = []
         if code == 200 and isinstance(body, dict) and isinstance(body.get("data"), list):
             models = [{"id": m.get("id"), "max_model_len": m.get("max_model_len")} for m in body["data"] if isinstance(m, dict)]
-        res = {"up": code == 200, "code": code, "models": models, "checked": time.time()}
-        if code != 200:
+        answering = code == 200
+        identity = ""
+        if answering and recipe.get("served_model_name") and models:
+            match = [m for m in models if m["id"] == recipe["served_model_name"]]
+            if not match:
+                identity = f"the port serves {', '.join(str(m['id']) for m in models)}, not {recipe['served_model_name']}"
+            elif recipe.get("max_model_len") and isinstance(match[0].get("max_model_len"), int) and match[0]["max_model_len"] != int(recipe["max_model_len"]):
+                identity = f"served context {match[0]['max_model_len']} differs from the recipe's {recipe['max_model_len']}"
+        res = {"up": answering and not identity, "answering": answering, "code": code, "models": models, "checked": time.time()}
+        if identity:
+            res["error"] = "another server: " + identity
+        elif code != 200:
             res["error"] = body if isinstance(body, str) else f"HTTP {code}"
         self._health[recipe["name"]] = res
         return res
+
+    def ready(self, recipe: dict[str, Any], timeout: float = 3.0) -> dict[str, Any]:
+        """Readiness while starting: the HTTP identity check, and the recipe's own health.sh on the head when it has one (it may know
+        more: ownership of the container, context verified...). health.sh answers one JSON line; ``ready: false`` keeps waiting."""
+        health = self.probe_health(recipe, timeout)
+        script = recipe.get("scripts", {}).get("health")
+        if not health.get("up") or not script:
+            return health
+        try:
+            node = self.cluster.node(recipe["head"])
+            res = node.transport.run(f"cd {q(self.cluster.settings['remote_dir'])}/recipes/{recipe['name']} && SPARK_NODE={q(node.conf['name'])} bash {script}",
+                                     timeout=60)
+            line = [ln for ln in res.out.splitlines() if ln.strip().startswith("{")]
+            data = json.loads(line[-1]) if line else {}
+        except (SparkError, ValueError) as exc:
+            return {**health, "up": False, "error": f"health.sh: {exc}"}
+        if isinstance(data, dict) and "ready" in data and not data.get("ready"):
+            return {**health, "up": False, "error": "health.sh: not ready" + (f" ({data.get('readiness_error') or data.get('state')})" if data else ""),
+                    "script": data}
+        return {**health, "script": data}
 
     def deployments(self, *, check: bool = True) -> list[dict[str, Any]]:
         recipes = [r for r in self.list() if "invalid" not in r]
@@ -230,6 +263,11 @@ class Recipes:
     # ------------------------------------------------------------------ start / stop
     def start(self, name: str, *, stop_conflicts: bool = False, wait: bool = False) -> dict[str, Any]:
         r = self.load(name)
+        with self._ops:
+            return self._start_locked(r, stop_conflicts=stop_conflicts, wait=wait)
+
+    def _start_locked(self, r: dict[str, Any], *, stop_conflicts: bool, wait: bool) -> dict[str, Any]:
+        name = r["name"]
         with self._lock:
             if name in self._threads and self._threads[name].is_alive():
                 raise SparkError("busy", f"{r['title']} is already being started or stopped.")
@@ -265,7 +303,11 @@ class Recipes:
             self._threads[name] = thread
         thread.start()
         if wait:
-            thread.join(timeout=r["ready_timeout_s"] + 600)
+            self._ops.release()   # a waiting caller must not block the other recipes' starts meanwhile
+            try:
+                thread.join(timeout=r["ready_timeout_s"] + 600)
+            finally:
+                self._ops.acquire()
         return self.get(name)
 
     def _env(self, r: dict[str, Any], node: Node, rank: int) -> dict[str, str]:
@@ -332,7 +374,10 @@ class Recipes:
         try:
             for other in conflicts:
                 self._set(name, step="unload", message=f"Descargando {other}")
-                self.stop(other, wait=True)
+                after = self.stop(other, wait=True)
+                if after.get("state") != "stopped":
+                    raise SparkError("remote_failed", f"{other} did not stop ({after.get('message') or after.get('state')}); {r['title']} was not started.",
+                                     hint="Look at its logs, stop it by hand and load again.")
             remotes = {}
             for node_id in r["nodes"]:
                 self._set(name, step="copy", message=f"Copiando la receta a {node_id}")
@@ -351,10 +396,12 @@ class Recipes:
             while time.time() < deadline:
                 if self.state.get(name, {}).get("state") != "starting":
                     return  # stopped meanwhile
-                health = self.probe_health(r, 3.0)
+                health = self.ready(r, 3.0)
                 if health.get("up"):
                     self._set(name, state="running", step="", ready_at=time.time(), message="Listo")
                     return
+                if health.get("answering") and "another server" in str(health.get("error", "")):
+                    self._set(name, message="El puerto lo ocupa otro servidor: " + str(health["error"]))
                 self.sleep(5.0)
             raise SparkError("timeout", f"{r['title']} did not answer on port {r['port']} within {r['ready_timeout_s']} s.",
                              hint="Look at the logs (deploy_logs) on the head.")
@@ -382,8 +429,11 @@ class Recipes:
             health = self.probe_health(r, 2.0)
             if health.get("up"):
                 self._set(name, state="failed", step="", message="Sigue respondiendo tras stop.sh. " + "; ".join(errors))
+            elif errors:
+                self._set(name, state="failed", step="", message="stop.sh falló en " + "; ".join(errors) + ". La cabeza ya no responde, pero puede quedar algo en marcha.",
+                          ready_at=None)
             else:
-                self._set(name, state="stopped", step="", message="; ".join(errors) if errors else "Descargado", external=False, ready_at=None)
+                self._set(name, state="stopped", step="", message="Descargado", external=False, ready_at=None)
 
         if wait:
             work()

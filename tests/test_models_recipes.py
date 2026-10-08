@@ -116,3 +116,33 @@ def test_servers_started_outside_a_recipe_are_offered(call, services, world, mon
                     "max_model_len": 4096, "nodes": ["spark2"], "head": "spark2", "engine": "vllm", "default": False, "detected": True}]
     ov = call("sparks_overview")
     assert ov["detected"][0]["up"] and ov["nodes"][1]["deployments"][0]["detected"]
+
+
+def test_a_shared_port_is_not_taken_for_the_wrong_recipe(call, services, monkeypatch):
+    # a server answers on the qwen recipe's port but serves another model or another context
+    monkeypatch.setattr(services.recipes, "http", lambda url, timeout=2.0: (200, {"data": [{"id": "otro", "max_model_len": 4096}]}) if ":8001/" in url else (0, "x"))
+    dep = next(d for d in call("deployments")["deployments"] if d["recipe"] == "qwen38-27b-1m")
+    assert dep["state"] == "stopped" and "another server" in dep["health"]["error"]
+    monkeypatch.setattr(services.recipes, "http", lambda url, timeout=2.0: (200, {"data": [{"id": "qwen3.8-27b", "max_model_len": 262144}]}) if ":8001/" in url else (0, "x"))
+    dep = next(d for d in call("deployments")["deployments"] if d["recipe"] == "qwen38-27b-1m")
+    assert dep["state"] == "stopped" and "context" in dep["health"]["error"]
+
+
+def test_a_failed_stop_is_reported(call, services, world):
+    call("deploy_start", {"recipe": "qwen38-27b-1m", "wait": True})
+    folder = services.recipes.folder / "qwen38-27b-1m"
+    (folder / "stop.sh").write_text("exit 3\n")
+    out = call("deploy_stop", {"recipe": "qwen38-27b-1m"})
+    assert out["state"] == "failed" and "stop.sh" in out["message"]
+
+
+def test_health_script_gates_readiness(call, services, world, monkeypatch):
+    folder = services.recipes.folder / "qwen38-27b-1m"
+    (folder / "health.sh").write_text("echo '{\"ready\": false, \"state\": \"starting\"}'\n")
+    r = services.recipes.load("qwen38-27b-1m")
+    assert r["scripts"]["health"] == "health.sh"
+    world.serving["qwen38-27b-1m"] = {"spark3"}
+    monkeypatch.setattr(services.cluster.node("spark3").transport, "run",
+                        lambda cmd, timeout=30.0, stdin=None: __import__("prometheus_hoard.transport", fromlist=["RunResult"]).RunResult(0, '{"ready": false, "state": "starting"}\n', ""))
+    res = services.recipes.ready(r)
+    assert res["up"] is False and "not ready" in res["error"]
