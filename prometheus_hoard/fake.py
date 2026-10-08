@@ -113,6 +113,8 @@ class FakeWorld:
         self.wol: list[str] = []
         self.power: dict[str, str] = {}              # node -> "off" | "asleep"
         self.started = time.time()
+        self.served_since: dict[str, float] = {}     # recipe -> when its servers came up (the "uptime" of the metrics counters)
+        self.drafters = ("glm",)                     # served models whose metrics include speculative decoding
 
     recipe_source = None   # set by the app: a callable returning the recipes (name, port, nodes, served_model_name, max_model_len)
 
@@ -132,6 +134,99 @@ class FakeWorld:
                 if m and f":{m['port']}/" in url and set(m["nodes"]) <= nodes:
                     return 200, {"object": "list", "data": [{"id": m["served"], "max_model_len": m["max_len"]}]}
         return 0, "connection refused"
+
+    def http_text(self, url: str, timeout: float = 2.0) -> tuple[int, str]:
+        """Text pages of a server (``/metrics``): Prometheus counters that grow with the time the recipe has been up."""
+        from urllib.parse import urlsplit
+
+        meta = self.recipes_meta()
+        path = urlsplit(url).path
+        with self.lock:
+            for recipe, nodes in self.serving.items():
+                m = meta.get(recipe)
+                if m and f":{m['port']}/" in url and set(m["nodes"]) <= nodes:
+                    if path != "/metrics":
+                        return 404, "not found"
+                    return 200, fake_metrics(m["served"], time.time() - self.served_since.get(recipe, self.started),
+                                             drafter=any(m["served"].startswith(d) for d in self.drafters), seed=m["port"])
+        return 0, "connection refused"
+
+
+# a request every 20 s that streams for 12 s at ~40 tokens/s; its prompt (1800 tokens, 1200 of them cached) is read in the first 2 s
+CYCLE_S, ACTIVE_S, PROMPT_S = 20.0, 12.0, 2.0
+TTFT_LE = [0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0]
+ITL_LE = [0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0]
+E2E_LE = [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+
+
+def _histogram(name: str, labels: str, edges: list[float], share: dict[float, float], count: int, mean: float) -> list[str]:
+    """Prometheus lines of a histogram whose ``count`` observations fall in the buckets named by ``share`` (upper edge -> fraction)."""
+    lines = [f"# HELP {name} Histogram (demo).", f"# TYPE {name} histogram"]
+    acc = 0.0
+    for le in edges:
+        acc += share.get(le, 0.0)
+        lines.append(f'{name}_bucket{{{labels},le="{le}"}} {int(round(count * min(acc, 1.0)))}')
+    lines.append(f'{name}_bucket{{{labels},le="+Inf"}} {count}')
+    lines.append(f"{name}_count{{{labels}}} {count}")
+    lines.append(f"{name}_sum{{{labels}}} {count * mean:.4f}")
+    lines.append(f"{name}_created{{{labels}}} 1.7e9")
+    return lines
+
+
+def fake_metrics(model: str, up_s: float, *, drafter: bool = False, seed: int = 0) -> str:
+    """The Prometheus page of a vLLM server that has been up ``up_s`` seconds (invented, deterministic)."""
+    cycles, rem = divmod(max(up_s, 0.0), CYCLE_S)
+    cycles = int(cycles)
+    active_now = rem < ACTIVE_S
+    rate = 36.0 + seed % 9
+    gen = int(rate * (cycles * ACTIVE_S + min(rem, ACTIVE_S)))
+    read = min(1.0, rem / PROMPT_S) if active_now else 1.0
+    prompt = int(1800 * (cycles + read))
+    cached = int(1200 * (cycles + read))
+    done = cycles
+    running = 1 if active_now else 0
+    if active_now and rem > ACTIVE_S * 0.6:
+        running = 2
+    waiting = 1 if active_now and rem < 1.5 else 0
+    kv = (0.006 + 0.05 * (rem / ACTIVE_S)) if active_now else 0.004
+    lab = f'engine="0",model_name="{model}"'
+    lines = ["# HELP python_gc_objects_collected_total Objects collected during gc", "# TYPE python_gc_objects_collected_total counter",
+             'python_gc_objects_collected_total{generation="0"} 4021.0', "process_cpu_seconds_total 91.2"]
+
+    def gauge(name: str, value: float) -> None:
+        lines.extend([f"# HELP vllm:{name} Gauge (demo).", f"# TYPE vllm:{name} gauge", f"vllm:{name}{{{lab}}} {value}"])
+
+    def counter(name: str, value: int) -> None:
+        lines.extend([f"# HELP vllm:{name} Counter (demo).", f"# TYPE vllm:{name} counter", f"vllm:{name}_total{{{lab}}} {float(value)}",
+                      f"vllm:{name}_created{{{lab}}} 1.7e9"])
+
+    gauge("num_requests_running", float(running))
+    gauge("num_requests_waiting", float(waiting))
+    gauge("kv_cache_usage_perc", round(kv, 5))
+    gauge("engine_sleep_state", 0.0)
+    counter("generation_tokens", gen)
+    counter("prompt_tokens", prompt)
+    counter("prompt_tokens_cached", cached)
+    counter("num_preemptions", 0)
+    lines.extend(["# TYPE vllm:request_success_total counter",
+                  f'vllm:request_success_total{{{lab},finished_reason="stop"}} {float(done)}',
+                  f'vllm:request_success_total{{{lab},finished_reason="length"}} 0.0'])
+    if drafter:
+        drafts = int(gen / 4.35)
+        dtok = int(drafts * 5.69)
+        accepted = int(dtok * 0.588)
+        counter("spec_decode_num_drafts", drafts)
+        counter("spec_decode_num_draft_tokens", dtok)
+        counter("spec_decode_num_accepted_tokens", accepted)
+        lines.append("# TYPE vllm:spec_decode_num_accepted_tokens_per_pos_total counter")
+        for pos in range(3):
+            lines.append(f'vllm:spec_decode_num_accepted_tokens_per_pos_total{{{lab},position="{pos}"}} {float(int(accepted * (0.5 - 0.15 * pos)))}')
+    lines += _histogram("vllm:time_to_first_token_seconds", lab, TTFT_LE, {0.5: 0.7, 0.75: 0.25, 1.0: 0.05}, done, 0.42)
+    lines += _histogram("vllm:inter_token_latency_seconds", lab, ITL_LE, {0.025: 0.3, 0.05: 0.7}, gen, 0.031)
+    lines += _histogram("vllm:e2e_request_latency_seconds", lab, E2E_LE, {15.0: 0.8, 20.0: 0.2}, done, 14.0)
+    lines += _histogram("vllm:request_queue_time_seconds", lab, TTFT_LE, {0.001: 0.9, 0.01: 0.1}, done, 0.002)
+    lines += _histogram("vllm:request_prefill_time_seconds", lab, TTFT_LE, {0.5: 0.8, 0.75: 0.2}, done, 0.35)
+    return "\n".join(lines) + "\n"
 
 
 def seed(world: FakeWorld, node_id: str) -> Path:
@@ -358,12 +453,14 @@ class FakeTransport:
         if recipe and "start.sh" in cmd:
             with self.world.lock:
                 self.world.serving.setdefault(recipe, set()).add(self.node_id)
+                self.world.served_since.setdefault(recipe, time.time())
         if recipe and "stop.sh" in cmd:
             with self.world.lock:
                 nodes = self.world.serving.get(recipe, set())
                 nodes.discard(self.node_id)
                 if not nodes:
                     self.world.serving.pop(recipe, None)
+                    self.world.served_since.pop(recipe, None)
 
 
 def fake_factory(world: FakeWorld):

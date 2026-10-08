@@ -1,4 +1,4 @@
-"""Everything the app does, wired once: settings, the cluster and its poller, files, models, jobs, recipes and power."""
+"""Everything the app does, wired once: settings, the cluster and its poller, files, models, jobs, recipes, power and live serving figures."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from .jobs import Jobs
 from .models import Models
 from .power import Power
 from .recipes import Recipes
+from .serving import Serving
 
 log = logging.getLogger("prometheus")
 
@@ -54,6 +55,7 @@ class Services:
             self.recipes.sleep = lambda s: time.sleep(min(s, 0.2))
         self.power = Power(self.cluster, self.recipes, config.data_dir / "macs.json", on_event=self.emit,
                            **({"wol": lambda mac, b: self.world.wol.append(mac)} if self.world is not None else {}))
+        self.serving = Serving(self.recipes.endpoints, config.serving_path, **({"getter": self.world.http_text} if self.world is not None else {}))
         self._bg: Optional[threading.Thread] = None
         self._stop = threading.Event()
 
@@ -62,6 +64,7 @@ class Services:
         if not self.config.background:
             return
         self.cluster.start()
+        self.serving.start()
         self._stop.clear()
         self._bg = threading.Thread(target=self._housekeeping, name="prometheus-housekeeping", daemon=True)
         self._bg.start()
@@ -77,6 +80,7 @@ class Services:
 
     def stop(self) -> None:
         self._stop.set()
+        self.serving.stop()
         self.cluster.stop()
         self.recipes.close()
 
@@ -140,6 +144,7 @@ class Services:
                         "power_w": round(sum((n["gpu"]["power_w"] or 0) for n in online), 1) if online else None},
             "deployments": deps,
             "detected": detected,
+            "serving": self.serving.summary(),
             "jobs": self.jobs.list(state="active", limit=20),
             "events": self.recent_events(time.time() - 600)[-20:],
             "demo": self.world is not None,

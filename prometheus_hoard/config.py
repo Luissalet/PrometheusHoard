@@ -84,6 +84,10 @@ class Config:
     def state_path(self) -> Path:
         return self.data_dir / "state.json"
 
+    @property
+    def serving_path(self) -> Path:
+        return self.data_dir / "serving.json"
+
     @classmethod
     def from_env(cls) -> "Config":
         data_env = env_str("PROMETHEUS_DATA_DIR")
