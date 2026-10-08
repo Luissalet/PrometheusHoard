@@ -284,7 +284,8 @@ class Recipes:
             for n in d["nodes"]:
                 out.setdefault(n, []).append(d["recipe"])
         for x in self.detected(deps):
-            out.setdefault(x["node"], []).append(x["recipe"])
+            for n in x["nodes"]:
+                out.setdefault(n, []).append(x["recipe"])
         return out
 
     # ------------------------------------------------------------------ start / stop
@@ -546,6 +547,7 @@ class Recipes:
                 for n in d["nodes"]:
                     taken.add((n, d["port"]))
         found = []
+        claimed = {n for d in deployments if d["state"] != "stopped" for n in d["nodes"]}
         for node in self.cluster.enabled():
             for srv in (node.metrics or {}).get("servers", []):
                 port = srv.get("port")
@@ -561,8 +563,32 @@ class Recipes:
                 found.append({"recipe": key, "title": f"{srv.get('served_name') or srv.get('model') or srv.get('engine')} ({node.conf['name']}:{port})",
                               "node": node.id, "engine": srv.get("engine"), "port": port, "base_url": base + "/v1", "up": h["up"],
                               "models": h["models"] or ([srv["served_name"]] if srv.get("served_name") else []),
-                              "max_model_len": srv.get("max_len"), "tp": srv.get("tp"), "pid": srv.get("pid")})
+                              "max_model_len": srv.get("max_len"), "tp": srv.get("tp"), "pid": srv.get("pid"), "nodes": [node.id]})
+        self._attach_workers(found, claimed)
         return found
+
+    _WORKER = re.compile(r"^(VLLM::Worker_TP[1-9]\d*|VLLM::Worker_PP[1-9]\d*|ray::.*Worker.*|sglang::.*tp[1-9].*)", re.I)
+
+    def _attach_workers(self, found: list[dict[str, Any]], claimed: set[str]) -> None:
+        """A server spread over several Sparks (TP/PP) only shows its API on the head; the other Sparks run its workers. A node with
+        such worker processes on the GPU, no server of its own and no recipe is a worker of the multi-node server it shares a
+        container name with (or of the only multi-node server, when there is just one)."""
+        multi = [x for x in found if (x.get("tp") or 1) > 1]
+        if not multi:
+            return
+        heads = {x["node"] for x in found}
+        names = {x["recipe"]: {c.get("name") for c in (self.cluster.node(x["node"]).metrics or {}).get("containers", []) if c.get("name")} for x in multi}
+        for node in self.cluster.enabled():
+            if node.id in heads or node.id in claimed:
+                continue
+            m = node.metrics or {}
+            apps = (m.get("gpu") or {}).get("apps", [])
+            if not any(self._WORKER.match(str(a.get("name") or "")) for a in apps):
+                continue
+            mine = {c.get("name") for c in m.get("containers", []) if c.get("name")}
+            owners = [x for x in multi if names[x["recipe"]] & mine] or (multi if len(multi) == 1 else [])
+            if len(owners) == 1 and len(owners[0]["nodes"]) < (owners[0].get("tp") or 1):
+                owners[0]["nodes"].append(node.id)
 
     def endpoints(self) -> list[dict[str, Any]]:
         out = []
@@ -570,7 +596,7 @@ class Recipes:
         for x in self.detected(deps):
             if x["up"]:
                 out.append({"recipe": x["recipe"], "title": x["title"], "base_url": x["base_url"], "models": x["models"],
-                            "max_model_len": x["max_model_len"], "nodes": [x["node"]], "head": x["node"], "engine": x["engine"],
+                            "max_model_len": x["max_model_len"], "nodes": x["nodes"], "head": x["node"], "engine": x["engine"],
                             "default": False, "detected": True})
         for d in deps:
             if d["state"] != "running":

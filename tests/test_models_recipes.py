@@ -210,3 +210,21 @@ def test_a_second_stop_is_refused_while_the_first_runs(call, services, world):
         time.sleep(0.1)
     assert services.recipes.state["qwen38-27b-1m"]["state"] == "stopped"
     assert "qwen38-27b-1m" not in services.recipes._stopping
+
+
+def test_a_multi_node_server_started_by_hand_holds_its_worker_sparks(call, services, monkeypatch):
+    head, w2, w3 = (services.cluster.node(n) for n in ("spark1", "spark2", "spark3"))
+    head.metrics["servers"] = [{"engine": "vllm", "model": "/m", "port": 8002, "served_name": "glm", "max_len": 1048576, "tp": 2, "pid": 7}]
+    head.metrics["containers"] = [{"name": "glm53"}, {"name": "mentatd"}]
+    head.metrics["gpu"]["apps"] = [{"pid": 8, "name": "VLLM::Worker_TP0", "mem_mb": 89000}]
+    w3.metrics["containers"] = [{"name": "glm53"}, {"name": "mentatd"}]
+    w3.metrics["gpu"]["apps"] = [{"pid": 9, "name": "VLLM::Worker_TP1", "mem_mb": 89000}]
+    w2.metrics["containers"] = [{"name": "mentatd"}]
+    w2.metrics["gpu"]["apps"] = [{"pid": 10, "name": "python3", "mem_mb": 1000}]   # not a worker
+    monkeypatch.setattr(services.recipes, "http", lambda url, timeout=2.0: (200, {"data": [{"id": "glm"}]}) if ":8002/" in url else (0, "refused"))
+    ep = call("endpoints")["endpoints"][0]
+    assert ep["recipe"] == "spark1-8002" and ep["nodes"] == ["spark1", "spark3"]
+    ov = call("sparks_overview")
+    assert ov["nodes"][2]["deployments"][0]["role"] == "worker" and ov["nodes"][1]["deployments"] == []
+    assert services.recipes.busy_nodes()["spark3"] == ["spark1-8002"]
+    assert call("deploy_start", {"recipe": "qwen38-27b-1m"}, status=409)["conflicts"] == ["spark1-8002"]

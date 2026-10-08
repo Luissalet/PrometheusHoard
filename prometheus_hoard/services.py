@@ -124,8 +124,10 @@ class Services:
                                                       "served": d["served"] or [d["served_model_name"]], "base_url": d["base_url"]})
         detected = self.recipes.detected(deps)
         for x in detected:
-            by_node.setdefault(x["node"], []).append({"recipe": x["recipe"], "title": x["title"], "state": "running" if x["up"] else "starting",
-                                                      "role": "head", "served": x["models"], "base_url": x["base_url"], "detected": True})
+            for n in x["nodes"]:
+                by_node.setdefault(n, []).append({"recipe": x["recipe"], "title": x["title"], "state": "running" if x["up"] else "starting",
+                                                  "role": "head" if n == x["node"] else "worker", "served": x["models"], "base_url": x["base_url"],
+                                                  "detected": True})
         for n in nodes:
             n["deployments"] = by_node.get(n["id"], [])
         online = [n for n in nodes if n["online"]]
