@@ -37,6 +37,52 @@ def read_json(path):
         return None
 
 
+def incomplete_weights(path, meta):
+    # Local-download lock files are persistent mutexes, not an active download.
+    # Indexed checkpoints are complete when their declared shards are present;
+    # stale auxiliary download buffers do not invalidate usable weights.
+    indexed = False
+    for name in ("model.safetensors.index.json", "pytorch_model.bin.index.json"):
+        index_path = os.path.join(path, name)
+        if not os.path.isfile(index_path):
+            continue
+        index = read_json(index_path)
+        weight_map = index.get("weight_map") if isinstance(index, dict) else None
+        if not isinstance(weight_map, dict) or not weight_map:
+            return True
+        indexed = True
+        shards = list(weight_map.values())
+        if any(not isinstance(shard, str) or not shard.strip() for shard in shards):
+            return True
+        for shard in set(shards):
+            if os.path.isabs(shard) or ".." in shard.replace("\\", "/").split("/"):
+                return True
+            try:
+                if not os.path.isfile(os.path.join(path, shard)) or os.path.getsize(os.path.join(path, shard)) <= 0:
+                    return True
+            except OSError:
+                return True
+    if indexed:
+        return False
+    weights = 0
+    for root, dirs, names in os.walk(path):
+        dirs[:] = [d for d in dirs if d not in (".git", ".cache")]
+        for name in names:
+            if name.endswith(WEIGHTS):
+                try:
+                    if os.path.getsize(os.path.join(root, name)) <= 0:
+                        return True
+                except OSError:
+                    return True
+                weights += 1
+    if not weights:
+        return True
+    for _root, _dirs, names in os.walk(os.path.join(meta, "download")):
+        if any(name.endswith(".incomplete") for name in names):
+            return True
+    return False
+
+
 def describe(path, source):
     cfg = read_json(os.path.join(path, "config.json")) or {}
     text = cfg.get("text_config") if isinstance(cfg.get("text_config"), dict) else {}
@@ -55,12 +101,7 @@ def describe(path, source):
         repo = marker.get("repo", "")
     marker = read_json(os.path.join(path, ".prometheus.json")) or {}
     repo = repo or marker.get("repo", "")
-    incomplete = False
-    if os.path.isdir(os.path.join(meta, "download")):
-        for root, _d, names in os.walk(os.path.join(meta, "download")):
-            if any(n.endswith(".incomplete") or n.endswith(".lock") for n in names):
-                incomplete = True
-                break
+    incomplete = incomplete_weights(path, meta)
     return {
         "path": path, "name": os.path.basename(path.rstrip("/")), "source": source, "bytes": total, "files": files, "weight_files": weights,
         "repo": repo, "architectures": cfg.get("architectures") or [], "model_type": cfg.get("model_type") or text.get("model_type") or "",
