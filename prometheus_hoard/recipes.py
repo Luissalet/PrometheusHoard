@@ -69,6 +69,7 @@ class Recipes:
         self._ops = threading.RLock()
         self._owned_cache: dict[str, dict[str, Any]] = {}
         self._stopping: set[str] = set()
+        self.cancel_wait_s = 120.0   # how long a stop waits for a start to leave its current step
         self._cancel: set[str] = set()   # checks + registration of a start are atomic with respect to other starts
         self._health: dict[str, dict[str, Any]] = {}
         self._pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="health")
@@ -297,6 +298,8 @@ class Recipes:
     def _start_locked(self, r: dict[str, Any], *, stop_conflicts: bool, wait: bool) -> dict[str, Any]:
         name = r["name"]
         with self._lock:
+            if name in self._stopping:
+                raise SparkError("busy", f"{r['title']} is being stopped; load it again when the stop ends.")
             if name in self._threads and self._threads[name].is_alive():
                 raise SparkError("busy", f"{r['title']} is already being started or stopped.")
         nodes = [self.cluster.node(n) for n in r["nodes"]]
@@ -329,11 +332,15 @@ class Recipes:
             if short and not stop_conflicts:
                 raise SparkError("conflict", f"{r['title']} needs about {r['memory_gb']} GB per Spark; not enough free memory on {', '.join(short)}.",
                                  hint="Free memory (unload another model) or repeat with stop_conflicts=true to try anyway.")
-        self._set(name, state="starting", nodes=r["nodes"], started=time.time(), ready_at=None, step="copy", message="Copiando la receta",
-                  external=False, jobs=[])
         thread = threading.Thread(target=self._start_worker, args=(r, conflicts), name=f"start-{name}", daemon=True)
-        with self._lock:
+        with self._lock:   # checks and registration are one step: a stop that began meanwhile wins
+            current = self._threads.get(name)
+            if name in self._stopping or (current is not None and current.is_alive()):
+                raise SparkError("busy", f"{r['title']} is being stopped or started; try again when it ends.")
+            self._cancel.discard(name)
             self._threads[name] = thread
+            self._set(name, state="starting", nodes=r["nodes"], started=time.time(), ready_at=None, step="copy", message="Copiando la receta",
+                      external=False, jobs=[])
         thread.start()
         if wait:
             self._ops.release()   # a waiting caller must not block the other recipes' starts meanwhile
@@ -461,7 +468,11 @@ class Recipes:
                 self._cancel.add(name)   # the start worker cancels its running step and leaves
         try:
             if starting is not None:
-                starting.join(timeout=120)
+                starting.join(timeout=self.cancel_wait_s)
+                if starting.is_alive():
+                    # the start is still inside a step: do not run stop.sh under it nor call it stopped; the cancel stays set,
+                    # so the start leaves at its next check, and the stop can be repeated then.
+                    raise SparkError("busy", f"{r['title']} is still finishing a start step; it will cancel itself, stop again in a moment.")
             self._set(name, state="stopping", step="stop", message="Parando")
         except BaseException:
             with self._lock:
@@ -505,8 +516,6 @@ class Recipes:
         t.start()
         if wait:
             t.join()
-        with self._lock:
-            self._cancel.discard(name)
         return self.get(name)
 
     def logs(self, name: str, node_id: str = "", lines: int = 200) -> dict[str, Any]:

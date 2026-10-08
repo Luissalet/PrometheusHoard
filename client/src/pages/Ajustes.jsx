@@ -44,7 +44,7 @@ export default function Ajustes() {
   const addNode = () => setForm((f) => {
     let k = f.nodes.length + 1;
     while (f.nodes.some((n) => n.id === `spark${k}`)) k += 1;
-    return { ...f, nodes: [...f.nodes, { id: `spark${k}`, name: `Spark${k}`, ssh: `Spark${k}`, enabled: true, api_host: "", color: "" }] };
+    return { ...f, nodes: [...f.nodes, { id: `spark${k}`, name: `Spark${k}`, ssh: `Spark${k}`, enabled: true, api_host: "", host: "", proxy_jump: "", color: "" }] };
   });
   const removeNode = async (i) => {
     const n = form.nodes[i];
@@ -58,7 +58,8 @@ export default function Ajustes() {
 
   const save = () => run("save", async () => {
     const body = {
-      nodes: form.nodes.map((n) => ({ id: n.id.trim(), name: n.name.trim() || n.id.trim(), ssh: n.ssh.trim(), enabled: !!n.enabled, api_host: (n.api_host || "").trim(), color: n.color || "" })),
+      nodes: form.nodes.map((n) => ({ id: n.id.trim(), name: n.name.trim() || n.id.trim(), ssh: n.ssh.trim(), enabled: !!n.enabled, api_host: (n.api_host || "").trim(),
+                                        host: (n.host || "").trim(), proxy_jump: (n.proxy_jump || "").trim(), color: n.color || "" })),
       recipes_dir: form.recipes_dir.trim(),
       models_dirs: splitList(form.models_dirs),
       hf_cache: form.hf_cache,
@@ -110,12 +111,15 @@ export default function Ajustes() {
                 <Field label={t("name")}><input className="field" value={n.name} onChange={(e) => setNode(i, "name", e.target.value)} /></Field>
                 <Field label={t("ssh_alias")}><input className="field mono" value={n.ssh} onChange={(e) => setNode(i, "ssh", e.target.value)} /></Field>
                 <Field label={t("api_host")}><input className="field mono" value={n.api_host || ""} onChange={(e) => setNode(i, "api_host", e.target.value)} placeholder={t("api_host_ph")} /></Field>
+                <Field label={t("ssh_host")}><input className="field mono" value={n.host || ""} onChange={(e) => setNode(i, "host", e.target.value)} placeholder={t("ssh_host_ph")} /></Field>
+                <Field label={t("proxy_jump")}><input className="field mono" value={n.proxy_jump || ""} onChange={(e) => setNode(i, "proxy_jump", e.target.value)} placeholder={t("proxy_jump_ph")} /></Field>
               </div>
             </div>
           ))}
           {!form.nodes.length && <p className="panel help">{t("no_sparks_help")}</p>}
         </div>
         <p className="help">{t("api_host_help")}</p>
+        <p className="help">{t("ssh_route_help")}</p>
       </Section>
 
       <Section title={t("folders")}>

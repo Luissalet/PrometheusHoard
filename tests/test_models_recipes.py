@@ -228,3 +228,28 @@ def test_a_multi_node_server_started_by_hand_holds_its_worker_sparks(call, servi
     assert ov["nodes"][2]["deployments"][0]["role"] == "worker" and ov["nodes"][1]["deployments"] == []
     assert services.recipes.busy_nodes()["spark3"] == ["spark1-8002"]
     assert call("deploy_start", {"recipe": "qwen38-27b-1m"}, status=409)["conflicts"] == ["spark1-8002"]
+
+
+def test_a_start_is_refused_while_a_stop_registers(call, services):
+    services.recipes._stopping.add("qwen38-27b-1m")
+    assert call("deploy_start", {"recipe": "qwen38-27b-1m"}, status=409)["code"] == "busy"
+    services.recipes._stopping.discard("qwen38-27b-1m")
+
+
+def test_a_stop_never_confirms_while_the_start_is_still_inside_a_step(call, services):
+    import threading
+
+    hold = threading.Event()
+    stuck = threading.Thread(target=hold.wait, name="start-qwen38-27b-1m", daemon=True)
+    stuck.start()
+    services.recipes._threads["qwen38-27b-1m"] = stuck
+    services.recipes._set("qwen38-27b-1m", state="starting", nodes=["spark3"])
+    services.recipes.cancel_wait_s = 0.2
+    assert call("deploy_stop", {"recipe": "qwen38-27b-1m"}, status=409)["code"] == "busy"
+    assert services.recipes.state["qwen38-27b-1m"]["state"] == "starting"      # not called stopped
+    assert "qwen38-27b-1m" in services.recipes._cancel                          # the start still has to leave
+    assert "qwen38-27b-1m" not in services.recipes._stopping                    # and the stop can be repeated
+    hold.set()
+    stuck.join()
+    out = call("deploy_stop", {"recipe": "qwen38-27b-1m"})
+    assert out["state"] == "stopped"
