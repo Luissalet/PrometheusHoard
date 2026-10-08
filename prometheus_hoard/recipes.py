@@ -421,15 +421,50 @@ class Recipes:
             out["script"] = res.out[-60000:]
         return out
 
+    def detected(self, deployments: Optional[list[dict[str, Any]]] = None) -> list[dict[str, Any]]:
+        """Inference servers running on a Spark that no recipe accounts for (started by hand or by another tool): each one that
+        answers on its port is offered as an endpoint too, named after the Spark and the port."""
+        deployments = deployments if deployments is not None else self.deployments(check=False)
+        taken = set()
+        for d in deployments:
+            if d["state"] in ("running", "starting"):
+                taken.add((d["head"], d["port"]))
+                for n in d["nodes"]:
+                    taken.add((n, d["port"]))
+        found = []
+        for node in self.cluster.enabled():
+            for srv in (node.metrics or {}).get("servers", []):
+                port = srv.get("port")
+                if not port or (node.id, port) in taken or srv.get("engine") not in ("vllm", "sglang", "llama-server", "trtllm"):
+                    continue
+                base = f"http://{node.api_host()}:{port}"
+                key = f"{node.id}-{port}"
+                if key not in self._health or time.time() - self._health[key].get("checked", 0) > 10:
+                    code, body = self.http(base + "/v1/models", 1.5)
+                    models = [m.get("id") for m in body.get("data", []) if isinstance(m, dict)] if code == 200 and isinstance(body, dict) else []
+                    self._health[key] = {"up": code == 200, "models": models, "checked": time.time()}
+                h = self._health[key]
+                found.append({"recipe": key, "title": f"{srv.get('served_name') or srv.get('model') or srv.get('engine')} ({node.conf['name']}:{port})",
+                              "node": node.id, "engine": srv.get("engine"), "port": port, "base_url": base + "/v1", "up": h["up"],
+                              "models": h["models"] or ([srv["served_name"]] if srv.get("served_name") else []),
+                              "max_model_len": srv.get("max_len"), "tp": srv.get("tp"), "pid": srv.get("pid")})
+        return found
+
     def endpoints(self) -> list[dict[str, Any]]:
         out = []
-        for d in self.deployments(check=True):
+        deps = self.deployments(check=True)
+        for x in self.detected(deps):
+            if x["up"]:
+                out.append({"recipe": x["recipe"], "title": x["title"], "base_url": x["base_url"], "models": x["models"],
+                            "max_model_len": x["max_model_len"], "nodes": [x["node"]], "head": x["node"], "engine": x["engine"],
+                            "default": False, "detected": True})
+        for d in deps:
             if d["state"] != "running":
                 continue
             out.append({"recipe": d["recipe"], "title": d["title"], "base_url": d["base_url"], "models": d["served"] or [d["served_model_name"]],
                         "max_model_len": d["max_model_len"], "nodes": d["nodes"], "head": d["head"], "engine": d["engine"],
-                        "default": d["recipe"] == self.cluster.settings["default_endpoint"]})
-        out.sort(key=lambda e: (not e["default"], e["recipe"]))
+                        "default": d["recipe"] == self.cluster.settings["default_endpoint"], "detected": False})
+        out.sort(key=lambda e: (not e["default"], e["detected"], e["recipe"]))
         return out
 
     def write_recipe(self, name: str, recipe: dict[str, Any], scripts: dict[str, str], *, overwrite: bool = False) -> dict[str, Any]:

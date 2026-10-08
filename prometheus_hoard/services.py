@@ -122,6 +122,10 @@ class Services:
                 for n in d["nodes"]:
                     by_node.setdefault(n, []).append({"recipe": d["recipe"], "title": d["title"], "state": d["state"], "role": "head" if n == d["head"] else "worker",
                                                       "served": d["served"] or [d["served_model_name"]], "base_url": d["base_url"]})
+        detected = self.recipes.detected(deps)
+        for x in detected:
+            by_node.setdefault(x["node"], []).append({"recipe": x["recipe"], "title": x["title"], "state": "running" if x["up"] else "starting",
+                                                      "role": "head", "served": x["models"], "base_url": x["base_url"], "detected": True})
         for n in nodes:
             n["deployments"] = by_node.get(n["id"], [])
         online = [n for n in nodes if n["online"]]
@@ -133,6 +137,7 @@ class Services:
                         "gpu_util": round(sum((n["gpu"]["util"] or 0) for n in online) / len(online), 1) if online else None,
                         "power_w": round(sum((n["gpu"]["power_w"] or 0) for n in online), 1) if online else None},
             "deployments": deps,
+            "detected": detected,
             "jobs": self.jobs.list(state="active", limit=20),
             "events": self.recent_events(time.time() - 600)[-20:],
             "demo": self.world is not None,

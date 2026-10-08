@@ -27,6 +27,7 @@ export default function Modelos({ query }) {
   }, [query]);
 
   const loaded = deployments.filter((d) => ACTIVE.has(d.state));
+  const detected = ov?.detected || [];
   const nodes = ov?.nodes || [];
   return (
     <div className="space-y-8">
@@ -43,11 +44,12 @@ export default function Modelos({ query }) {
         </nav>
       </header>
 
-      <Section id="loaded" title={t("sec_loaded")} count={loaded.length || undefined}>
+      <Section id="loaded" title={t("sec_loaded")} count={loaded.length + detected.length || undefined}>
         {deps.error && !deps.data && <ErrorBox error={deps.error} onRetry={deps.reload} />}
-        {deps.loading && !deps.data ? <Loading /> : loaded.length ? (
+        {deps.loading && !deps.data ? <Loading /> : loaded.length || detected.length ? (
           <div className="card-grid">
             {loaded.map((d) => <LoadedCard key={d.recipe} d={d} nodes={nodes} onLogs={() => setLogsOf(d)} reload={deps.reload} />)}
+            {detected.map((x) => <DetectedCard key={x.recipe} x={x} nodes={nodes} />)}
           </div>
         ) : <Empty icon={ICONS.models} title={t("nothing_loaded")}>{t("nothing_loaded_help")}</Empty>}
       </Section>
@@ -169,6 +171,34 @@ function LoadedCard({ d, nodes, onLogs, reload }) {
         <Busy className="btn btn-sm btn-danger" busy={busy[`stop-${d.recipe}`]} disabled={d.state === "stopping"} onClick={() => stop(d)}><Icon d={ICONS.stop} size={13} />{t("unload")}</Busy>
         <button type="button" className="btn btn-sm" onClick={onLogs}><Icon d={ICONS.terminal} size={14} />{t("view_logs")}</button>
       </div>
+    </article>
+  );
+}
+
+function DetectedCard({ x, nodes }) {
+  const { t, lang } = useApp();
+  return (
+    <article className="panel card space-y-2.5" data-testid={`detected-${x.recipe}`}>
+      <div className="flex items-start gap-2">
+        <Icon d={ICONS.models} size={20} />
+        <div className="min-w-0 flex-1">
+          <h3 style={{ overflowWrap: "anywhere" }}>{x.title}</h3>
+          <div className="help mono trunc">{x.engine} · pid {x.pid}</div>
+        </div>
+        <Chip className={x.up ? DEP_TONE.running : DEP_TONE.starting}>{x.up ? t("dep_running") : t("dep_starting")}</Chip>
+      </div>
+      <p className="help">{x.up ? t("detected_help") : t("detected_down")}</p>
+      <NodeChips ids={[x.node]} head={x.node} nodes={nodes} />
+      <div className="url-box">
+        <span className="mono trunc flex-1">{x.base_url}</span>
+        <CopyButton text={x.base_url} label={t("copy_url")} />
+      </div>
+      <dl className="facts">
+        <div><dt>{t("served_name")}</dt><dd className="mono">{(x.models || []).join(", ") || "—"}</dd></div>
+        <div><dt>{t("context")}</dt><dd>{ctx(x.max_model_len, lang)}</dd></div>
+        <div><dt>{t("engine")}</dt><dd>{x.engine || "—"}</dd></div>
+        <div><dt>{t("detected_label")}</dt><dd>{x.node}:{x.port}</dd></div>
+      </dl>
     </article>
   );
 }

@@ -105,3 +105,14 @@ def test_job_cancel(call, world):
 def test_files_transfer(call):
     jobs = call("files_transfer", {"src_node": "spark1", "paths": ["~/Documentos"], "dst_nodes": ["spark3"]})["jobs"]
     assert jobs[0]["kind"] == "copy" and jobs[0]["meta"]["via"] == "cx7"
+
+
+def test_servers_started_outside_a_recipe_are_offered(call, services, world, monkeypatch):
+    node = services.cluster.node("spark2")
+    node.metrics["servers"] = [{"engine": "vllm", "model": "/model", "port": 8003, "served_name": "manual", "max_len": 4096, "tp": None, "pid": 7}]
+    monkeypatch.setattr(services.recipes, "http", lambda url, timeout=2.0: (200, {"data": [{"id": "manual"}]}) if ":8003/" in url else (0, "refused"))
+    eps = call("endpoints")["endpoints"]
+    assert eps == [{"recipe": "spark2-8003", "title": "manual (Spark2:8003)", "base_url": "http://spark-spark2.local:8003/v1", "models": ["manual"],
+                    "max_model_len": 4096, "nodes": ["spark2"], "head": "spark2", "engine": "vllm", "default": False, "detected": True}]
+    ov = call("sparks_overview")
+    assert ov["detected"][0]["up"] and ov["nodes"][1]["deployments"][0]["detected"]
