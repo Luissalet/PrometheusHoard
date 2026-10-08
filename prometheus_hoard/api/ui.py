@@ -1,6 +1,6 @@
 """Routes for the bundled web UI and for programs that only read (Faustus, the hub).
 
-``GET /api/overview`` is what the panel polls; ``GET /api/endpoints`` is the list of OpenAI-compatible servers the Sparks offer now (read
+``GET /api/overview`` is what the panel polls; ``GET /api/serving`` the live inference figures of the servers; ``GET /api/endpoints`` is the list of OpenAI-compatible servers the Sparks offer now (read
 by Faustus to use the Sparks as its backend); file bytes travel on their own routes (download, raw preview, upload); everything else goes
 through ``POST /api/ui/call`` with ``{name, arguments}``, which runs the same tool handlers the assistant uses, uncapped."""
 
@@ -38,6 +38,13 @@ def endpoints(request: Request):
     """Running inference servers, default first: ``{endpoints: [{recipe, title, base_url, models, max_model_len, nodes, default}]}``."""
     s = services(request)
     return {"endpoints": s.recipes.endpoints(), "nodes": [{"id": n.id, "name": n.conf["name"], "online": n.online} for n in s.cluster.nodes.values()]}
+
+
+@router.get("/serving")
+def serving(request: Request, recipe: str = "", series: bool = True):
+    """Live figures of the running inference servers (tokens per second, queue, KV cache, latency) and the totals served:
+    ``{endpoints: [...], totals: {...}, poll_s, now}``."""
+    return services(request).serving.snapshot(recipe or None, series=series)
 
 
 @router.get("/nodes/{node}/history")
