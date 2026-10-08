@@ -7,10 +7,13 @@ Runs a small cluster of NVIDIA DGX Spark computers from a Windows PC. Each Spark
 ## What it does
 
 - **Equipo**: one card per Spark with state, uptime, GPU use, temperature, power and clock, CPU use per core, unified memory, disk, CX7 links and the models it serves (head or worker). A Task Manager view per Spark (`#/spark/<id>`) with large charts, processes, containers, detected inference servers and network interfaces.
+- **Sirviendo**: live figures of every running inference server (recipes and servers started by hand), read from the Prometheus page each vLLM server publishes at `/metrics`: generation and prompt-reading tokens per second with a ten-minute chart, requests running and waiting, KV cache use, tokens per step and acceptance of speculative decoding when the server has a drafter, median and 95th percentile of the time to the first token and of the time between tokens (also as tokens per second per stream), a warning when requests were preempted, and the tokens served so far with the base URL ready to copy. The page refreshes every 2 s while it is open.
 - **Archivos**: an explorer with every Spark as a drive. Address bar, back/forward/up, search, details and icon views, hidden files, preview (text with line numbers, JSON, images, video, audio) and in-place editing of text files, upload by drag and drop, download, new folder and file, rename (F2), cut/copy/paste (Ctrl+X/C/V), send to other Sparks over the CX7 cables, properties with folder size, and a trash per Spark with restore. Writes stay inside the home folder of the Spark user; the rest of the disk can be shown read-only.
 - **Modelos**: what is loaded now with its OpenAI-compatible URL; recipes with a Load button (refused with the conflict when another model uses the same Sparks, with an option to unload it first); models on each disk with size, architecture, quantisation and context; downloads from Hugging Face; copies between Sparks over CX7 (rsync, resumable); jobs with progress and logs.
 - **Power**: lock, sleep, shut down and restart one Spark or all of them; turning on uses wake-on-LAN with the wired MAC address learnt while the Spark was on. Before a shutdown the models of that Spark are unloaded.
-- **Endpoints for other programs**: `GET /api/endpoints` lists the inference servers running now (the default recipe first). Faustus reads it to use the Sparks as its default backend.
+- **Endpoints for other programs**: `GET /api/endpoints` lists the inference servers running now (the default recipe first). Faustus reads it to use the Sparks as its default backend. `GET /api/serving` returns the live figures of those servers (`{endpoints, totals, poll_s, now}`; `?recipe=` filters, `?series=false` leaves out the chart points) and the `serving_stats` tool gives the same to an assistant. `sparks_overview` carries a short `serving` summary per endpoint.
+
+![Sirviendo](docs/screens/sirviendo.png)
 
 ![Archivos](docs/screens/archivos.png)
 
@@ -32,10 +35,12 @@ venv\Scripts\python -m prometheus_hoard        # http://127.0.0.1:5205
 
 The Sparks are reached with the SSH configuration of the PC (`~/.ssh/config` and its `Include`s; NVIDIA Sync writes the `Spark1`..`Spark3` aliases there). In Ajustes each Spark can have a different address or a jump host. `PROMETHEUS_FAKE=1` starts an invented three-Spark cluster in a temporary folder, for trying the interface without hardware.
 
-The MCP bridge is `python mcp_server.py` (37 tools; `faustus-plugin.json` describes it for Faustus and the Hoard Hub). Destructive tools (permanent deletes, emptying the trash, deleting a model, power actions, shell commands) need `confirm=true`.
+The MCP bridge is `python mcp_server.py` (38 tools; `faustus-plugin.json` describes it for Faustus and the Hoard Hub). Destructive tools (permanent deletes, emptying the trash, deleting a model, power actions, shell commands) need `confirm=true`.
 
 ## What it cannot do
 
+- The serving figures come only from vLLM's `/metrics`: a server of another engine is listed with the reason it has no figures. Sampling runs every 2 s while the page or an assistant is looking and every 10 s otherwise; about 15 minutes of samples are kept in memory, so the charts start empty after a restart of the app.
+- The tokens-served totals (`data/serving.json`, saved every 30 s and on exit) only count what the app saw while it was running. The servers' counters restart with their container; a drop is detected and the earlier value is added to an offset, but what was served while the app was closed (and a server that restarted in that gap) is lost.
 - It does not install drivers, change the network of the Sparks or build inference engines: recipes do that.
 - Shutting down, restarting and sleeping need `sudo` without a password (or a polkit rule) on the Sparks; without it the action is refused with the line to add.
 - Wake-on-LAN works only if the firmware of the Spark has it enabled.
