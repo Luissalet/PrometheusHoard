@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "./api.js";
 import { initialLang, makeT, saveLang } from "./i18n.js";
 import { AppContext } from "./context.js";
+import { createSerialPoll } from "./polling.js";
 import { ConfirmDialog, Icon, ICONS } from "./components/ui.jsx";
 import Equipo from "./pages/Equipo.jsx";
 import Spark from "./pages/Spark.jsx";
@@ -112,11 +113,16 @@ export default function App() {
     || (ov.nodes || []).some((n) => !["on", "off", "unknown"].includes(n.power_state))));
   const every = page.fast ? 2000 : busy ? 3000 : 10000;
   useEffect(() => {
-    refreshOv();
-    const timer = setInterval(() => { if (!document.hidden) refreshOv(); }, every);
-    const onVisible = () => { if (!document.hidden) refreshOv(); };
+    const poll = createSerialPoll(refreshOv, {
+      intervalMs: every,
+      isHidden: () => document.hidden,
+    });
+    const onVisible = () => poll.wake();
     document.addEventListener("visibilitychange", onVisible);
-    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+    return () => {
+      poll.stop();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refreshOv, every]);
   useEffect(() => { api.health().then(setHealth).catch(() => {}); }, []);
 
