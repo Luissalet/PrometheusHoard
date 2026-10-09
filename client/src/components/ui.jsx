@@ -32,6 +32,7 @@ export const ICONS = {
   star: "M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z",
   trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6",
   recipes: "M5 4h11l3 3v13H5zM9 9h6M9 13h6M9 17h3",
+  warning: "M12 3l10 18H2zM12 10v5M12 18h.01",
   // actions
   plus: "M12 5v14M5 12h14",
   refresh: "M3 12a9 9 0 0115-6.7L21 8M21 3v5h-5M21 12a9 9 0 01-15 6.7L3 16M3 21v-5h5",

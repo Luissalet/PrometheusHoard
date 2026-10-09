@@ -114,7 +114,8 @@ export function eventText(e, t, ov) {
 }
 
 function SparkCard({ node: n, samples }) {
-  const { t, lang } = useApp();
+  const { t, lang, ov } = useApp();
+  const xids = ov?.xid?.by_node?.[n.id] || 0;
   const ps = powerState(n, t);
   const open = () => { window.location.hash = `#/spark/${encodeURIComponent(n.id)}`; };
   const col = columns(samples);
@@ -130,6 +131,11 @@ function SparkCard({ node: n, samples }) {
           <h2 className="trunc"><a href={`#/spark/${encodeURIComponent(n.id)}`} onClick={(e) => e.stopPropagation()}>{n.name}</a></h2>
           <div className="help">{n.hostname || n.host || n.ssh}{n.online && n.uptime_s ? ` · ${t("up_for", { d: uptime(n.uptime_s, lang) })}` : ""}</div>
         </div>
+        {xids > 0 && (
+          <a href="#/sirviendo" className="xid-chip" title={t("xid_chip_tip")} onClick={(e) => e.stopPropagation()}>
+            <Chip className="chip-danger"><Icon d={ICONS.warning} size={11} />{t("xid_chip", { n: xids })}</Chip>
+          </a>
+        )}
         <Chip className={ps.tone}>{ps.busy && <span className="spinner spinner-xs" />}{ps.label}</Chip>
         <span onClick={(e) => e.stopPropagation()}><PowerButton node={n} compact /></span>
       </header>

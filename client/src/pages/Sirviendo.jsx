@@ -6,6 +6,8 @@ import { Bar, Chip, CopyButton, Empty, ErrorBox, ICONS, Spinner, useLoad } from 
 import { Sparkline, niceMax } from "../components/charts.jsx";
 import { usePoll } from "../components/hooks.js";
 import Clients from "../components/Clients.jsx";
+import SpeedPanel from "../components/Speed.jsx";
+import XidPanel from "../components/Xid.jsx";
 
 const C = { decode: "var(--hoard-accent)", prefill: "#5aa9e6", running: "#e0a84a", kv: "#b48ef0" };
 
@@ -39,6 +41,8 @@ export default function Sirviendo() {
       </header>
 
       {load.error && <ErrorBox error={load.error} onRetry={load.reload} />}
+
+      <XidPanel />
 
       {!eps.length ? (
         <Empty icon={ICONS.activity} title={t("sv_empty_title")} action={<a className="btn btn-primary" href="#/modelos">{t("go_models")}</a>}>{t("sv_empty_help")}</Empty>
@@ -137,6 +141,8 @@ function EndpointCard({ e, onChanged }) {
           </div>
         </>
       )}
+
+      <SpeedPanel recipe={e.recipe} />
 
       <Clients clients={e.clients} onChanged={onChanged} />
 
