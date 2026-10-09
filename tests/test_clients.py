@@ -535,6 +535,11 @@ def run_helper(shim, args, **env):
     return json.loads(res.stdout.strip().splitlines()[-1])
 
 
+# The helper runs on the Sparks (Linux); the shims are POSIX shell scripts standing in for docker and sudo.
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="the access-log helper and its docker/sudo shims run on the Sparks (POSIX)")
+
+
+@posix_only
 def test_the_helper_returns_only_access_lines_newer_than_the_cursor(shim):
     out = run_helper(shim, {"containers": ["good"], "since": "2026-10-09T10:00:01.000000000Z"})
     assert out["ok"] is True and out["via"] == "docker" and out["container"] == "good" and out["ssh_client"] == "192.0.2.10"
@@ -545,6 +550,7 @@ def test_the_helper_returns_only_access_lines_newer_than_the_cursor(shim):
     assert run_helper(shim, {"containers": ["good"], "since": "2026-10-09T09:00:00Z", "max_lines": 2})["truncated"] is True
 
 
+@posix_only
 def test_the_helper_tries_containers_in_turn_and_falls_back_to_sudo(shim):
     out = run_helper(shim, {"containers": ["stale-id", "second"], "since": "2026-10-09T10:00:00Z"})
     assert out["ok"] is True and out["container"] == "second" and out["via"] == "docker"
