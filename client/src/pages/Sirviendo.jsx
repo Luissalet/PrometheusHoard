@@ -5,6 +5,7 @@ import { clock, compact, latency, num } from "../format.js";
 import { Bar, Chip, CopyButton, Empty, ErrorBox, ICONS, Spinner, useLoad } from "../components/ui.jsx";
 import { Sparkline, niceMax } from "../components/charts.jsx";
 import { usePoll } from "../components/hooks.js";
+import Clients from "../components/Clients.jsx";
 
 const C = { decode: "var(--hoard-accent)", prefill: "#5aa9e6", running: "#e0a84a", kv: "#b48ef0" };
 
@@ -43,14 +44,14 @@ export default function Sirviendo() {
         <Empty icon={ICONS.activity} title={t("sv_empty_title")} action={<a className="btn btn-primary" href="#/modelos">{t("go_models")}</a>}>{t("sv_empty_help")}</Empty>
       ) : (
         <div className="serve-grid">
-          {eps.map((e) => <EndpointCard key={e.recipe} e={e} />)}
+          {eps.map((e) => <EndpointCard key={e.recipe} e={e} onChanged={load.reload} />)}
         </div>
       )}
     </div>
   );
 }
 
-function EndpointCard({ e }) {
+function EndpointCard({ e, onChanged }) {
   const { t, lang, nodeName } = useApp();
   const now = e.now || {};
   const lat = e.latency || {};
@@ -136,6 +137,8 @@ function EndpointCard({ e }) {
           </div>
         </>
       )}
+
+      <Clients clients={e.clients} onChanged={onChanged} />
 
       <p className="help serve-totals">
         {tot.generation_tokens || tot.requests
