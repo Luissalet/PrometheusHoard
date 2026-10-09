@@ -381,3 +381,17 @@ def test_serving_stats_tool(call, services):
     assert "series" in call("serving_stats", {"series": True})["endpoints"][0]
     assert call("serving_stats", {"recipe": "other"})["endpoints"] == []
     assert call("serving_stats", {"recipe": "x" * 80}, status=400)["code"] == "invalid_arguments"
+
+
+def test_one_server_listed_twice_is_sampled_and_counted_once(tmp_path, clock):
+    eps = [{"recipe": "spark1-8000", "title": "detected", "base_url": "http://a:8000/v1", "models": ["g"], "nodes": ["spark1"], "head": "spark1",
+            "engine": "vllm", "detected": True},
+           {"recipe": "glm", "title": "GLM", "base_url": "http://a:8000/v1", "models": ["g"], "nodes": ["spark1"], "head": "spark1", "engine": "vllm"}]
+    sv = Serving(lambda: eps, tmp_path / "s.json", getter=lambda url, timeout: (200, page(gen=int(clock[0]))), clock=lambda: clock[0],
+                 fast_s=0, refresh_s=0)
+    sv.poll_once()
+    clock[0] += 2
+    snap = sv.snapshot(poll=True)
+    assert [e["recipe"] for e in snap["endpoints"]] == ["glm"]
+    assert [p["recipe"] for p in snap["totals"]["endpoints"]] == ["glm"]
+    sv._pool.shutdown(wait=False)

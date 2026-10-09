@@ -100,7 +100,9 @@ def parse_line(line: str) -> Optional[Access]:
     return Access(ns, ip, m["method"], m["path"], int(m["code"]))
 
 
-_POLL_PATHS = ("/health", "/ping", "/metrics", "/version", "/load", "/is_sleeping", "/server_info", "/v1/models", "/models")
+_POLL_PATHS = ("/health", "/ping", "/metrics", "/version", "/load", "/is_sleeping", "/server_info", "/v1/models", "/models",
+               # what other engines answer: programs that look for llama.cpp or Ollama probe these and get a 404 here
+               "/props", "/v1/props", "/slots", "/api/version", "/api/tags", "/api/ps", "/v1/health")
 
 
 def classify(method: str, path: str) -> str:
@@ -509,9 +511,10 @@ class Clients:
                 rec = ep.ips.setdefault(a.ip, {"first": t, "last": t, "b": {}})
                 rec["first"], rec["last"] = min(rec["first"], t), max(rec["last"], t)
                 row = rec["b"].setdefault(minute, [0] * (len(KINDS) + 1))
-                row[KINDS.index(classify(a.method, a.path))] += 1
-                if not 200 <= a.code < 300:
-                    row[ERR] += 1
+                kind = classify(a.method, a.path)
+                row[KINDS.index(kind)] += 1
+                if not 200 <= a.code < 300 and not (kind == "poll" and a.code == 404):
+                    row[ERR] += 1      # a probe for another engine's route answered 404 is discovery, not a failure
             ep.cursor, ep.at_cursor = newest, at_newest
             self._prune(ep, now + ep.skew)
             if counted:

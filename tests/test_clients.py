@@ -669,3 +669,13 @@ def test_a_head_without_docker_access_says_so(call, services, world):
     e = call("serving_stats")["endpoints"][0]["clients"]
     assert e["ok"] is False and e["error"] == "docker_denied"
     services.clients.runner = orig
+
+
+def test_probes_for_other_engines_count_as_polling_not_errors(tmp_path, clock):
+    c, _ = make(tmp_path, clock)
+    L = [line(T0 - 30, "192.0.2.5", "GET /props", code=404), line(T0 - 20, "192.0.2.5", "GET /api/version", code=404),
+         line(T0 - 15, "192.0.2.5", "GET /slots", code=404), line(T0 - 10, "192.0.2.5", "POST /v1/chat/completions", code=500)]
+    c.ingest("m", L, now=T0)
+    a = client(c.view("m"), "192.0.2.5")
+    assert a["by_kind"]["poll"] == 3
+    assert a["errors"] == 1      # only the failed chat request

@@ -415,6 +415,13 @@ class Serving:
         except Exception:  # noqa: BLE001 - keep the last list; the next round tries again
             log.exception("endpoint list")
             return
+        # One server can be listed twice (a recipe's deployment and the same server detected on its port): keep the recipe.
+        by_url: dict[str, dict[str, Any]] = {}
+        for info in listed:
+            url = metrics_url(info.get("base_url", "")) or info["recipe"]
+            if url not in by_url or (by_url[url].get("detected") and not info.get("detected")):
+                by_url[url] = info
+        listed = list(by_url.values())
         with self._lock:
             self._listed = self.clock()
             keys = set()
