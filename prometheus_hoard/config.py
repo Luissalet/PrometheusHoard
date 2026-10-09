@@ -70,6 +70,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ssh_timeout_s": 8.0,
     "default_endpoint": "",          # recipe whose endpoint is advertised first to Faustus and the family
     "client_names": {},              # {address: name} for the clients seen in the servers' access logs
+    "xid_watch": True,               # read the kernel log of each Spark for NVIDIA Xid / full-chip reset / GSP errors (warns only)
+    "xid_interval_s": 60.0,          # seconds between two reads of the kernel logs
+    "xid_notify": True,              # tell the family hub (notifications) when a new error shows up
 }
 
 
@@ -109,6 +112,10 @@ class Config:
     @property
     def speedcards_path(self) -> Path:
         return self.data_dir / "speedcards.json"
+
+    @property
+    def xid_path(self) -> Path:
+        return self.data_dir / "xid_events.json"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -170,6 +177,9 @@ class Settings:
             data["history_min"] = int(min(max(int(data["history_min"]), 5), 240))
             data["ssh_timeout_s"] = min(max(float(data["ssh_timeout_s"]), 2.0), 60.0)
             data["client_names"] = normalize_client_names(data["client_names"])
+            data["xid_watch"] = bool(data["xid_watch"])
+            data["xid_notify"] = bool(data["xid_notify"])
+            data["xid_interval_s"] = min(max(float(data["xid_interval_s"]), 15.0), 3600.0)
             self._data = data
             write_json_atomic(self.path, data)
             return copy.deepcopy(data)

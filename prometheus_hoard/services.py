@@ -22,6 +22,7 @@ from .recipes import Recipes
 from .serving import Serving
 from .speedcard import SpeedCards
 from .transport import run_script
+from .xidwatch import XidWatch
 
 log = logging.getLogger("prometheus")
 
@@ -68,6 +69,7 @@ class Services:
                                touched=lambda: self.serving.last_touch, **extra)
         self.speedcards = SpeedCards(self.recipes.endpoints, self.jobs, config.speedcards_path, get_json=self.recipes.http, get_text=self.serving.get,
                                      recipe=self.recipes.load, **({"transport": self.world.speed_transport()} if self.world is not None else {}))
+        self.xid = XidWatch(self.cluster.enabled, config.xid_path, self._xid_options, notifier=None if self.world is not None else self._notify)
         self._bg: Optional[threading.Thread] = None
         self._stop = threading.Event()
 
@@ -78,6 +80,7 @@ class Services:
         self.cluster.start()
         self.serving.start()
         self.clients.start()
+        self.xid.start()
         self._stop.clear()
         self._bg = threading.Thread(target=self._housekeeping, name="prometheus-housekeeping", daemon=True)
         self._bg.start()
@@ -93,6 +96,7 @@ class Services:
 
     def stop(self) -> None:
         self._stop.set()
+        self.xid.stop()
         self.clients.stop()
         self.serving.stop()
         self.cluster.stop()
@@ -128,6 +132,17 @@ class Services:
         else:
             data.pop(key, None)
         write_json_atomic(self.secrets_path, data)
+
+    # ------------------------------------------------------------------ Xid watcher
+    def _xid_options(self) -> dict[str, Any]:
+        return {"enabled": self.settings["xid_watch"], "interval_s": self.settings["xid_interval_s"], "notify": self.settings["xid_notify"]}
+
+    @staticmethod
+    def _notify(title: str, body: str, **kwargs: Any) -> dict[str, Any]:
+        """Through the family hub's notification facet (the vendored ``hoard_link``); it answers ``hub unreachable`` when no hub runs."""
+        from .hoard_link import fam_notify
+
+        return fam_notify.notify(title, body, **kwargs)
 
     # ------------------------------------------------------------------ clients of the model servers
     def _read_access_log(self, node_id: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -209,6 +224,7 @@ class Services:
             "deployments": deps,
             "detected": detected,
             "serving": self.serving.summary(),
+            "xid": self.xid.summary(),
             "jobs": self.jobs.list(state="active", limit=20),
             "events": self.recent_events(time.time() - 600)[-20:],
             "demo": self.world is not None,
