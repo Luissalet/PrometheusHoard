@@ -29,6 +29,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Optional
+from urllib.parse import urlsplit
 
 from .cluster import Cluster, Node
 from .errors import SparkError
@@ -574,6 +575,45 @@ class Recipes:
         if (Path(r["folder"]) / "logs.sh").is_file():
             res = node.transport.run(f"cd {q(self.cluster.settings['remote_dir'])}/recipes/{name} && PROM_LINES={int(lines)} bash logs.sh 2>&1 | tail -n {int(lines)}", timeout=30)
             out["script"] = res.out[-60000:]
+        return out
+
+    _ENGINE_HINTS = ("vllm", "sglang", "llama", "trtllm", "tensorrt", "text-generation")
+
+    def log_containers(self, info: dict[str, Any]) -> list[str]:
+        """Where to read the server's log on its head Spark, best guess first: the container id its health script reports
+        (``memory_guard.container_id``), the container name the recipe declares, then the head's containers that publish the server's
+        port (or run ``--port N``) or, failing that, the only container of an inference engine. Ids can go stale when a container is
+        recreated, which is why the reader tries them in turn."""
+        out: list[str] = []
+
+        def add(value: Any) -> None:
+            if value and str(value) not in out:
+                out.append(str(value))
+
+        key = info.get("recipe") or ""
+        script = (self._health.get(key) or {}).get("script")
+        script = script if isinstance(script, dict) else {}
+        guard = script.get("memory_guard") if isinstance(script.get("memory_guard"), dict) else {}
+        add(guard.get("container_id"))
+        add(script.get("container_id"))
+        try:
+            add(self.load(key).get("container"))
+        except SparkError:
+            pass        # a detected server has no recipe
+        node = self.cluster.nodes.get(info.get("head") or "")
+        port = urlsplit(info.get("base_url") or "").port
+        found = ((node.metrics or {}).get("containers") or []) if node else []
+        if port:
+            pat = re.compile(rf"(--port[ =]{port}\b|:{port}->|:{port}/)")
+            for c in found:
+                if pat.search(f"{c.get('command') or ''} {c.get('ports') or ''}"):
+                    add(c.get("id"))
+                    add(c.get("name"))
+        if not out:
+            engines = [c for c in found if any(h in f"{c.get('image') or ''} {c.get('command') or ''}".lower() for h in self._ENGINE_HINTS)]
+            if len(engines) == 1:
+                add(engines[0].get("id"))
+                add(engines[0].get("name"))
         return out
 
     def detected(self, deployments: Optional[list[dict[str, Any]]] = None) -> list[dict[str, Any]]:

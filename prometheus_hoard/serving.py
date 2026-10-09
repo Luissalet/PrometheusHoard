@@ -384,6 +384,18 @@ class Serving:
     def touch(self) -> None:
         self._touched = self.clock()
 
+    @property
+    def last_touch(self) -> float:
+        """When the page or the tool last asked (other collectors follow the same attention)."""
+        return self._touched
+
+    def infos(self) -> list[dict[str, Any]]:
+        """The endpoints being followed (the list the sampler already holds; read from ``Recipes`` only when it was never loaded)."""
+        if self._listed < 0:
+            self.refresh_list()
+        with self._lock:
+            return [dict(ep.info) for ep in self._eps.values()]
+
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
