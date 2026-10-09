@@ -102,7 +102,7 @@ def parse_line(line: str) -> Optional[Access]:
 
 _POLL_PATHS = ("/health", "/ping", "/metrics", "/version", "/load", "/is_sleeping", "/server_info", "/v1/models", "/models",
                # what other engines answer: programs that look for llama.cpp or Ollama probe these and get a 404 here
-               "/props", "/v1/props", "/slots", "/api/version", "/api/tags", "/api/ps", "/v1/health")
+               "/props", "/v1/props", "/slots", "/api/version", "/api/tags", "/api/ps", "/v1/health", "/api/health")
 
 
 def classify(method: str, path: str) -> str:
