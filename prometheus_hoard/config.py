@@ -7,6 +7,7 @@ from the UI or with ``cluster_set``; nothing about the machines is fixed in code
 from __future__ import annotations
 
 import copy
+import ipaddress
 import os
 import re
 import threading
@@ -22,6 +23,18 @@ from .hoard_link.guard import parse_allowed_hosts
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 NODE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+def norm_ip(text: Any) -> str:
+    """A client address in its canonical text form ("[::1]" -> "::1", IPv4-mapped IPv6 -> IPv4, zone dropped); "" when it is not an address."""
+    raw = str(text or "").strip().strip("[]").split("%", 1)[0]
+    try:
+        ip = ipaddress.ip_address(raw)
+    except ValueError:
+        return ""
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return str(ip)
 
 
 def default_recipes_dir() -> str:
@@ -56,6 +69,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "remote_dir": "~/sparks",        # where recipes and job logs are copied on each Spark
     "ssh_timeout_s": 8.0,
     "default_endpoint": "",          # recipe whose endpoint is advertised first to Faustus and the family
+    "client_names": {},              # {address: name} for the clients seen in the servers' access logs
 }
 
 
@@ -87,6 +101,10 @@ class Config:
     @property
     def serving_path(self) -> Path:
         return self.data_dir / "serving.json"
+
+    @property
+    def clients_path(self) -> Path:
+        return self.data_dir / "clients.json"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -147,9 +165,24 @@ class Settings:
             data["idle_poll_s"] = min(max(float(data["idle_poll_s"]), 5.0), 300.0)
             data["history_min"] = int(min(max(int(data["history_min"]), 5), 240))
             data["ssh_timeout_s"] = min(max(float(data["ssh_timeout_s"]), 2.0), 60.0)
+            data["client_names"] = normalize_client_names(data["client_names"])
             self._data = data
             write_json_atomic(self.path, data)
             return copy.deepcopy(data)
+
+
+def normalize_client_names(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        raise ValueError("client_names must be an object {address: name}")
+    out: dict[str, str] = {}
+    for key, value in raw.items():
+        ip = norm_ip(key)
+        if not ip:
+            raise ValueError(f"Not an IP address: {key!r}")
+        name = " ".join(str(value or "").split())[:60]
+        if name:
+            out[ip] = name
+    return out
 
 
 def normalize_node(node: Any) -> dict[str, Any]:
