@@ -153,7 +153,8 @@ def process_label(name: str, cmdline: list[str], cwd: str = "") -> str:
             return label
     script = next((a for a in args[1:] if re.search(r"\.(py|js|mjs|cjs|ts)$", a, re.I)), "")
     if script:
-        return f"{stem} · {re.split(r'[\\\\/]', script)[-1]}"
+        name = re.split(r'[\\\\/]', script)[-1]
+        return f"{stem} · {name}"
     if "-m" in args[:-1]:
         return f"{stem} · -m {args[args.index('-m') + 1]}"
     return stem
