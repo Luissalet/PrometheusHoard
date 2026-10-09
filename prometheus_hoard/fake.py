@@ -120,6 +120,7 @@ class FakeWorld:
         self.pc_address = PC_ADDRESS                 # this PC as the invented servers see it
         self.backfill_s = 3 * 3600.0                 # how long the invented containers had been logging when the recipe was started here
         self.psutil = FakePsutil(self)
+        self.kernel_log: dict[str, list[str]] = {}   # node -> `journalctl -k -o short-iso` lines the invented Spark has (the tests and the demo can add some)
         self._streams = 0                            # streaming completions in flight, to slow the invented decode down
 
     recipe_source = None   # set by the app: a callable returning the recipes (name, port, nodes, served_model_name, max_model_len)
@@ -484,6 +485,11 @@ class FakeTransport:
             return RunResult(0, "", "")
         if command.startswith("docker"):
             return RunResult(0, "vLLM server ready (demo)\n", "")
+        if command.startswith("journalctl -k"):
+            with self.world.lock:
+                lines = list(self.world.kernel_log.get(self.node_id, []))
+            clock = time.strftime("%Y-%m-%d %H:%M:%S")
+            return RunResult(0, "\n".join(lines + ["@@RC=0", f"@@NOW={clock}"]) + "\n", "")
         return RunResult(0, "", "")
 
     def _local(self, path: str) -> str:
