@@ -100,7 +100,7 @@ def test_benchmark_levels_prompts_warmup_and_tokens_from_usage():
     for lv in out["levels"]:
         assert lv["errors"] == 0 and lv["tokens_source"] == "usage"
         assert lv["tokens"] == lv["requests"] * 10                 # usage said n + 2: reasoning and content both counted
-        assert lv["agg_tps"] > 0 and lv["stream_tps"] > 0 and 0 < lv["ttft_p50"] <= lv["ttft_p95"]
+        assert lv["agg_tps"] > 0 and lv["stream_tps"] > 0 and 0 <= lv["ttft_p50"] <= lv["ttft_p95"]   # a local fake can answer in under 0.1 ms
         assert len(lv["rounds"]) == 3
     assert out["levels"][1]["agg_tps"] > out["levels"][0]["agg_tps"]   # four streams at once produce more than one
 

@@ -91,7 +91,7 @@ def summarize_round(results: list[dict[str, Any]], wall_s: float) -> dict[str, A
     ttfts = [r["ttft"] for r in ok if r.get("ttft") is not None]
     return {"requests": len(results), "ok": len(ok), "errors": len(results) - len(ok), "tokens": tokens, "wall_s": _round(wall_s),
             "agg_tps": _round(tokens / wall_s, 2) if ok and wall_s > 0 else None, "stream_tps": _round(_median(streams), 2),
-            "ttft_p50": _round(percentile(ttfts, 50)), "ttft_p95": _round(percentile(ttfts, 95)),
+            "ttft_p50": _round(percentile(ttfts, 50), 4), "ttft_p95": _round(percentile(ttfts, 95), 4),
             "sources": sorted({r.get("source", "") for r in ok}), "error_samples": sorted({r["error"] for r in results if r.get("error")})[:3]}
 
 
@@ -100,7 +100,7 @@ def summarize_level(n: int, rounds: list[dict[str, Any]]) -> dict[str, Any]:
     good = [r for r in rounds if r["ok"]]
     sources = sorted({s for r in good for s in r["sources"]})
     return {"n": n, "agg_tps": _round(_median([r["agg_tps"] for r in good]), 2), "stream_tps": _round(_median([r["stream_tps"] for r in good]), 2),
-            "ttft_p50": _round(_median([r["ttft_p50"] for r in good])), "ttft_p95": _round(_median([r["ttft_p95"] for r in good])),
+            "ttft_p50": _round(_median([r["ttft_p50"] for r in good]), 4), "ttft_p95": _round(_median([r["ttft_p95"] for r in good]), 4),
             "requests": sum(r["requests"] for r in rounds), "errors": sum(r["errors"] for r in rounds),
             "tokens": sum(r["tokens"] for r in rounds), "tokens_source": "+".join(sources) if sources else "",
             "rounds": [{"agg_tps": r["agg_tps"], "stream_tps": r["stream_tps"], "ttft_p50": r["ttft_p50"], "errors": r["errors"]} for r in rounds],
