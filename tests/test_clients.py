@@ -73,7 +73,7 @@ def test_stamps_roundtrip_and_zones():
     ("GET", "/v1/responses/resp_1", "responses"), ("POST", "/v1/messages", "messages"), ("POST", "/v1/messages/count_tokens", "other"),
     ("POST", "/v1/embeddings", "embeddings"), ("POST", "/tokenize", "other"), ("POST", "/v1/chat/completions?x=1", "chat"),
     ("GET", "/health", "poll"), ("GET", "/v1/models", "poll"), ("GET", "/v1/models/glm", "poll"), ("GET", "/metrics", "poll"),
-    ("HEAD", "/health", "poll"), ("GET", "/docs", "other"), ("GET", "/v1/chat/completions", "other"),
+    ("HEAD", "/health", "poll"), ("GET", "/api/health", "poll"), ("GET", "/docs", "other"), ("GET", "/v1/chat/completions", "other"),
 ])
 def test_classify(method, path, kind):
     assert classify(method, path) == kind
