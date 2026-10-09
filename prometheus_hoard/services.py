@@ -7,8 +7,10 @@ import threading
 import time
 from typing import Any, Optional
 
+from .clients import Clients
 from .cluster import Cluster, ssh_factory
-from .config import Config, Settings
+from .config import Config, Settings, norm_ip
+from .errors import SparkError
 from .files import Files
 from .hoard_link import family
 from .hoard_link.atomic import read_json, write_json_atomic
@@ -18,6 +20,7 @@ from .models import Models
 from .power import Power
 from .recipes import Recipes
 from .serving import Serving
+from .transport import run_script
 
 log = logging.getLogger("prometheus")
 
@@ -56,6 +59,12 @@ class Services:
         self.power = Power(self.cluster, self.recipes, config.data_dir / "macs.json", on_event=self.emit,
                            **({"wol": lambda mac, b: self.world.wol.append(mac)} if self.world is not None else {}))
         self.serving = Serving(self.recipes.endpoints, config.serving_path, **({"getter": self.world.http_text} if self.world is not None else {}))
+        extra = {}
+        if self.world is not None:
+            extra = {"psutil_mod": self.world.psutil, "resolve": self.world.resolve, "route": lambda host: self.world.pc_address}
+        self.clients = Clients(self.serving.infos, config.clients_path, runner=self._read_access_log, containers=self.recipes.log_containers,
+                               names=lambda: self.settings["client_names"], spark_addrs=self.spark_addresses, node_name=self._node_name,
+                               touched=lambda: self.serving.last_touch, **extra)
         self._bg: Optional[threading.Thread] = None
         self._stop = threading.Event()
 
@@ -65,6 +74,7 @@ class Services:
             return
         self.cluster.start()
         self.serving.start()
+        self.clients.start()
         self._stop.clear()
         self._bg = threading.Thread(target=self._housekeeping, name="prometheus-housekeeping", daemon=True)
         self._bg.start()
@@ -80,6 +90,7 @@ class Services:
 
     def stop(self) -> None:
         self._stop.set()
+        self.clients.stop()
         self.serving.stop()
         self.cluster.stop()
         self.recipes.close()
@@ -114,6 +125,56 @@ class Services:
         else:
             data.pop(key, None)
         write_json_atomic(self.secrets_path, data)
+
+    # ------------------------------------------------------------------ clients of the model servers
+    def _read_access_log(self, node_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        """The new access lines of a server's container, read on its head Spark (the collector's thread; one short remote helper)."""
+        node = self.cluster.node(node_id)
+        out = run_script(node.transport, "accesslog", args, timeout=30.0)
+        if node.conf.get("proxy_jump") and isinstance(out, dict):
+            out["ssh_client"] = ""        # the Spark sees the jump host, not this PC
+        return out
+
+    def _node_name(self, node_id: str) -> str:
+        node = self.cluster.nodes.get(node_id)
+        return node.conf["name"] if node else node_id
+
+    def spark_addresses(self) -> dict[str, str]:
+        """address -> Spark id for every address the Sparks are known by (LAN, CX7 fabric, the host the settings give)."""
+        out: dict[str, str] = {}
+        for node in self.cluster.nodes.values():
+            for iface in ((node.metrics or {}).get("net") or {}).values():
+                for cidr in iface.get("v4") or []:
+                    ip = norm_ip(str(cidr).split("/", 1)[0])
+                    if ip:
+                        out[ip] = node.id
+            for host in (node.conf.get("api_host"), node.conf.get("host")):
+                ip = norm_ip(host)
+                if ip:
+                    out[ip] = node.id
+        return out
+
+    def serving_snapshot(self, recipe: Optional[str] = None, *, series: bool = True, clients: bool = True) -> dict[str, Any]:
+        """Live figures of the servers (``Serving``) and, per server, who is using it (``Clients``)."""
+        out = self.serving.snapshot(recipe, series=series)
+        if clients:
+            views = self.clients.snapshot(recipe)
+            for e in out["endpoints"]:
+                e["clients"] = views.get(e["recipe"])
+        return out
+
+    def set_client_name(self, ip: str, name: str) -> dict[str, Any]:
+        address = norm_ip(ip)
+        if not address:
+            raise SparkError("invalid", f"{ip!r} is not an IP address.", hint="Use the address the server's log shows, e.g. 192.0.2.7.")
+        names = self.settings["client_names"]
+        clean = " ".join(str(name or "").split())[:60]
+        if clean:
+            names[address] = clean
+        else:
+            names.pop(address, None)
+        self.settings.update({"client_names": names})
+        return self.clients.identity(address)
 
     # ------------------------------------------------------------------ views
     def overview(self, *, detail: bool = False) -> dict[str, Any]:

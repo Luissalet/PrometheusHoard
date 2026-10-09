@@ -115,6 +115,9 @@ class FakeWorld:
         self.started = time.time()
         self.served_since: dict[str, float] = {}     # recipe -> when its servers came up (the "uptime" of the metrics counters)
         self.drafters = ("glm",)                     # served models whose metrics include speculative decoding
+        self.pc_address = PC_ADDRESS                 # this PC as the invented servers see it
+        self.backfill_s = 3 * 3600.0                 # how long the invented containers had been logging when the recipe was started here
+        self.psutil = FakePsutil(self)
 
     recipe_source = None   # set by the app: a callable returning the recipes (name, port, nodes, served_model_name, max_model_len)
 
@@ -135,6 +138,10 @@ class FakeWorld:
                     return 200, {"object": "list", "data": [{"id": m["served"], "max_model_len": m["max_len"]}]}
         return 0, "connection refused"
 
+    def resolve(self, host: str) -> set[str]:
+        """The invented address of a server host name (documentation range)."""
+        return {f"198.51.100.{100 + sum(host.encode()) % 100}"}
+
     def http_text(self, url: str, timeout: float = 2.0) -> tuple[int, str]:
         """Text pages of a server (``/metrics``): Prometheus counters that grow with the time the recipe has been up."""
         from urllib.parse import urlsplit
@@ -150,6 +157,112 @@ class FakeWorld:
                     return 200, fake_metrics(m["served"], time.time() - self.served_since.get(recipe, self.started),
                                              drafter=any(m["served"].startswith(d) for d in self.drafters), seed=m["port"])
         return 0, "connection refused"
+
+
+PC_ADDRESS = "192.0.2.10"
+# who asks the invented servers: (address, method, path, status, every N seconds, offset, only on servers whose port is even)
+CLIENT_TRAFFIC = (
+    (PC_ADDRESS, "POST", "/v1/chat/completions", 200, 20, 3, False),
+    (PC_ADDRESS, "POST", "/v1/responses", 200, 95, 11, False),
+    (PC_ADDRESS, "GET", "/v1/models", 200, 60, 7, False),
+    (PC_ADDRESS, "GET", "/metrics", 200, 10, 1, False),
+    ("192.0.2.20", "GET", "/v1/models", 200, 30, 5, False),
+    ("192.0.2.30", "POST", "/v1/messages", 200, 47, 13, False),
+    ("192.0.2.30", "POST", "/v1/messages", 400, 311, 17, False),
+    ("198.51.100.7", "POST", "/v1/embeddings", 200, 15, 2, True),
+    ("198.51.100.7", "POST", "/v1/completions", 200, 120, 9, True),
+    ("198.51.100.231", "GET", "/health", 200, 30, 4, True),
+    ("127.0.0.1", "GET", "/health", 200, 10, 6, False),
+    ("127.0.0.1", "GET", "/metrics", 200, 10, 8, False),
+)
+_REASON = {200: "OK", 400: "Bad Request", 404: "Not Found"}
+
+
+def fake_access_lines(port: int, since_ns: int, now: float, up_since: float, limit: int = 20000) -> list[str]:
+    """The uvicorn access lines (with docker's ``--timestamps`` stamp) the invented server of ``port`` wrote after ``since_ns``."""
+    from datetime import datetime, timezone
+
+    rows = []
+    for ip, method, path, code, every, offset, even_only in CLIENT_TRAFFIC:
+        if even_only and port % 2:
+            continue
+        first = max(since_ns / 1e9, up_since)
+        k = max(0, math.ceil((first - offset) / every))
+        while offset + k * every <= now:
+            t = offset + k * every
+            if int(t * 1e9) > since_ns:
+                rows.append((t, ip, method, path, code, k))
+            k += 1
+    rows.sort()
+    out = []
+    for t, ip, method, path, code, k in rows[-limit:]:
+        sec, frac = divmod(int(round(t * 1e9)), 10**9)
+        stamp = datetime.fromtimestamp(sec, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + f".{frac:09d}Z"
+        out.append(f'{stamp} INFO:     {ip}:{40000 + k % 20000} - "{method} {path} HTTP/1.1" {code} {_REASON.get(code, "OK")}')
+    return out
+
+
+class FakePsutil:
+    """The part of psutil the app uses, for an invented PC: a few programs hold connections to each running server."""
+
+    class Error(Exception):
+        pass
+
+    class AccessDenied(Error):
+        pass
+
+    class NoSuchProcess(Error):
+        pass
+
+    PROGRAMS = {  # pid -> (name, command line, folder, connections per server)
+        4120: ("python.exe", ["python", "-m", "galton_hoard"], "C:/hoards/galton", 2),
+        5532: ("python.exe", ["python", "app.py"], "C:/work/faustus", 3),
+        6104: ("node.exe", ["node", "C:/tools/codex/bin/codex.js"], "C:/work", 1),
+        7210: ("python.exe", ["python", "-m", "prospero_hoard"], "C:/hoards/prospero", 1),
+    }
+    HIDDEN = 9999       # a program of another user: its connections are visible, its details are not
+
+    def __init__(self, world: "FakeWorld"):
+        self.world = world
+
+    def net_connections(self, kind: str = "tcp") -> list[Any]:
+        from types import SimpleNamespace as NS
+
+        conns = []
+        meta = self.world.recipes_meta()
+        with self.world.lock:
+            running = {r: n for r, n in self.world.serving.items() if r in meta and set(meta[r]["nodes"]) <= n}
+        for recipe in running:
+            m = meta[recipe]
+            ip = sorted(self.world.resolve(f"spark-{m['nodes'][0]}.local"))[0]
+            for pid, (_, _, _, n) in self.PROGRAMS.items():
+                for i in range(n):
+                    conns.append(NS(status="ESTABLISHED", raddr=(ip, m["port"]), laddr=(self.world.pc_address, 50000 + pid % 1000 + i), pid=pid))
+            conns.append(NS(status="ESTABLISHED", raddr=(ip, m["port"]), laddr=(self.world.pc_address, 59000), pid=self.HIDDEN))
+            conns.append(NS(status="TIME_WAIT", raddr=(ip, m["port"]), laddr=(self.world.pc_address, 59001), pid=None))
+        return conns
+
+    def Process(self, pid: int) -> Any:  # noqa: N802 - psutil's own name
+        outer = self
+
+        class P:
+            def _row(self) -> tuple:
+                if pid == outer.HIDDEN:
+                    raise outer.AccessDenied(pid)
+                if pid not in outer.PROGRAMS:
+                    raise outer.NoSuchProcess(pid)
+                return outer.PROGRAMS[pid]
+
+            def name(self) -> str:
+                return self._row()[0]
+
+            def cmdline(self) -> list[str]:
+                return list(self._row()[1])
+
+            def cwd(self) -> str:
+                return self._row()[2]
+
+        return P()
 
 
 # a request every 20 s that streams for 12 s at ~40 tokens/s; its prompt (1800 tokens, 1200 of them cached) is read in the first 2 s
@@ -360,7 +473,7 @@ class FakeTransport:
             net[name] = {"rx": flow + i, "tx": flow + 2 * i, "speed_mbps": 200000, "v4": [ip + "/24"], "up": True, "mtu": 9000, "fabric": True,
                          "mac": f"4c:bb:47:ea:c7:0{i}"}
         net["enP7s7"] = {"rx": int((t - self.world.started) * 2e5), "tx": int((t - self.world.started) * 1e5), "speed_mbps": 10000,
-                         "v4": [f"192.168.0.{230 + self.index}/24"], "up": True, "mtu": 1500, "fabric": False, "mac": f"30:c5:99:00:00:0{self.index}"}
+                         "v4": [f"198.51.100.{230 + self.index}/24"], "up": True, "mtu": 1500, "fabric": False, "mac": f"30:c5:99:00:00:0{self.index}"}
         servers = []
         for recipe, nodes in self.world.serving.items():
             meta = self.world.recipes_meta().get(recipe)
@@ -384,6 +497,24 @@ class FakeTransport:
                                                 "labels": "", "ports": "", "command": ""} for r, n in self.world.serving.items() if self.node_id in n],
             "docker": True,
         }
+
+    def _op_accesslog(self, args: dict[str, Any]) -> Any:
+        """The access lines of the container of a running invented server."""
+        from .clients import parse_stamp
+
+        meta = self.world.recipes_meta()
+        out = {"ok": False, "container": "", "via": "", "lines": [], "truncated": False, "now": time.time(), "ssh_client": self.world.pc_address}
+        for cand in args.get("containers") or []:
+            recipe = cand[len("demo-"):] if cand.startswith("demo-") else cand
+            with self.world.lock:
+                nodes = self.world.serving.get(recipe)
+                up = self.world.served_since.get(recipe, self.world.started)
+            if nodes is None or self.node_id not in nodes or recipe not in meta:
+                continue
+            since = parse_stamp(args.get("since") or "") or 0
+            lines = fake_access_lines(meta[recipe]["port"], since, out["now"], up - self.world.backfill_s, int(args.get("max_lines") or 20000))
+            return {**out, "ok": True, "container": cand, "via": "sudo", "lines": lines}
+        return {**out, "error": "no_container"}
 
     def _op_jobs(self, args: dict[str, Any]) -> Any:
         op = args.get("op", "status")

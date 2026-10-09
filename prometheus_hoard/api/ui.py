@@ -41,10 +41,10 @@ def endpoints(request: Request):
 
 
 @router.get("/serving")
-def serving(request: Request, recipe: str = "", series: bool = True):
+def serving(request: Request, recipe: str = "", series: bool = True, clients: bool = True):
     """Live figures of the running inference servers (tokens per second, queue, KV cache, latency) and the totals served:
-    ``{endpoints: [...], totals: {...}, poll_s, now}``."""
-    return services(request).serving.snapshot(recipe or None, series=series)
+    ``{endpoints: [...], totals: {...}, poll_s, now}``. Each endpoint carries ``clients`` (who uses it, from its access log) unless ``clients=false``."""
+    return services(request).serving_snapshot(recipe or None, series=series, clients=clients)
 
 
 @router.get("/nodes/{node}/history")
