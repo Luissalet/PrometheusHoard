@@ -4,7 +4,7 @@ import { useApp } from "../context.js";
 import { splitList } from "../format.js";
 import { Busy, Chip, ErrorBox, Field, Icon, ICONS, Section, Spinner, Switch, useBusy, useLoad } from "../components/ui.jsx";
 
-const NUMS = ["poll_s", "idle_poll_s", "history_min", "ssh_timeout_s"];
+const NUMS = ["poll_s", "idle_poll_s", "history_min", "ssh_timeout_s", "xid_interval_s"];
 
 export default function Ajustes() {
   const { t, lang, setLang, notify, changed, confirm } = useApp();
@@ -27,6 +27,7 @@ export default function Ajustes() {
       trash_dir: s.trash_dir || "",
       remote_dir: s.remote_dir || "",
       default_endpoint: s.default_endpoint || "",
+      xid_watch: s.xid_watch !== false, xid_interval_s: s.xid_interval_s ?? 60, xid_notify: s.xid_notify !== false,
     });
   }, [settings.data]);
 
@@ -67,6 +68,8 @@ export default function Ajustes() {
       trash_dir: form.trash_dir.trim(),
       remote_dir: form.remote_dir.trim(),
       default_endpoint: form.default_endpoint,
+      xid_watch: form.xid_watch,
+      xid_notify: form.xid_notify,
     };
     for (const k of NUMS) body[k] = Number(form[k]);
     await api.call("settings_set", body);
@@ -152,6 +155,20 @@ export default function Ajustes() {
           <Field label={t("idle_poll_s")} hint={t("idle_poll_s_help")}><input className="field num" type="number" min="1" step="1" value={form.idle_poll_s} onChange={(e) => set("idle_poll_s", e.target.value)} /></Field>
           <Field label={t("history_min")} hint={t("history_min_help")}><input className="field num" type="number" min="1" max="240" step="1" value={form.history_min} onChange={(e) => set("history_min", e.target.value)} /></Field>
           <Field label={t("ssh_timeout_s")} hint={t("ssh_timeout_help")}><input className="field num" type="number" min="1" step="1" value={form.ssh_timeout_s} onChange={(e) => set("ssh_timeout_s", e.target.value)} /></Field>
+        </div>
+      </Section>
+
+      <Section title={t("xid_settings")}>
+        <div className="panel grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2 space-y-3">
+            <label className="flex items-start gap-2"><Switch checked={form.xid_watch} onChange={(v) => set("xid_watch", v)} label={t("xid_watch")} />
+              <span><span className="block">{t("xid_watch")}</span><span className="help">{t("xid_watch_help")}</span></span></label>
+            <label className="flex items-start gap-2"><Switch checked={form.xid_notify} disabled={!form.xid_watch} onChange={(v) => set("xid_notify", v)} label={t("xid_notify")} />
+              <span><span className="block">{t("xid_notify")}</span><span className="help">{t("xid_notify_help")}</span></span></label>
+          </div>
+          <Field label={t("xid_interval_s")} hint={t("xid_interval_help")}>
+            <input className="field num" type="number" min="15" max="3600" step="5" disabled={!form.xid_watch} value={form.xid_interval_s} onChange={(e) => set("xid_interval_s", e.target.value)} />
+          </Field>
         </div>
       </Section>
 

@@ -519,3 +519,32 @@ button.xp-crumb:hover { background: var(--hover); }
   .trash-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; padding: 8px 10px 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
   .trash-row.is-selected { background: var(--sel); }
 }
+
+/* ---------------------------------------------------------------- speed card, capacity card and GPU errors */
+.sc-pair { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); border-top: 1px solid var(--line); padding-top: 10px; }
+.sc-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--hoard-radius); background: color-mix(in srgb, var(--field) 60%, transparent); }
+.sc-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+.sc-head h3 { font-size: 13.5px; }
+.sc-progress { display: flex; flex-direction: column; gap: 4px; }
+.sc-scroll { overflow-x: auto; }
+.sc-table th, .sc-table td { padding: 5px 8px; }
+.sc-table td:last-child { white-space: nowrap; }
+.sc-foot { font-size: 11.5px; line-height: 1.4; }
+.sc-more { font-size: 12px; align-self: flex-start; }
+.sc-older { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.sc-older li { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.sc-facts { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.sc-facts > div { display: flex; flex-direction: column; gap: 2px; }
+.sc-facts dt { font-size: 11.5px; color: var(--muted); }
+.sc-facts dd { margin: 0; }
+.sc-facts dd.num { font-size: 16px; font-weight: 650; }
+.xid { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.xid-quiet { flex-direction: row; align-items: center; gap: 8px; }
+.xid-quiet .dot { flex: none; }
+.xid-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.xid-note { margin-left: auto; text-align: right; }
+.xid-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.xid-row { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
+.xid-when { margin-left: auto; }
+.xid-line { display: block; margin-top: 3px; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xid-chip { text-decoration: none; }
