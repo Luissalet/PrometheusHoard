@@ -51,6 +51,14 @@ elif op == "search":
 elif op == "copy":
     dest = os.path.expanduser(ARGS["dest"])
     done = []
+    missing = [p for p in ARGS["paths"] if not os.path.lexists(os.path.expanduser(p))]
+    if not os.path.isdir(dest):
+        print(json.dumps({"error": f"The destination folder {dest} does not exist.", "code": "not_found",
+                          "hint": "Create the folder first (folder_create) or choose an existing one."}))
+        sys.exit(0)
+    if missing:
+        print(json.dumps({"error": f"Not found: {', '.join(missing[:5])}", "code": "not_found"}))
+        sys.exit(0)
     for p in ARGS["paths"]:
         src = os.path.expanduser(p)
         target = os.path.join(dest, os.path.basename(src.rstrip("/")))
