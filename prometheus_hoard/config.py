@@ -106,6 +106,10 @@ class Config:
     def clients_path(self) -> Path:
         return self.data_dir / "clients.json"
 
+    @property
+    def speedcards_path(self) -> Path:
+        return self.data_dir / "speedcards.json"
+
     @classmethod
     def from_env(cls) -> "Config":
         data_env = env_str("PROMETHEUS_DATA_DIR")
