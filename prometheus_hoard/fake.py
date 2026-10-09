@@ -20,6 +20,8 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+import httpx
+
 from .transport import RunResult, remote_script
 
 HOME = "/home/demo"
@@ -118,6 +120,7 @@ class FakeWorld:
         self.pc_address = PC_ADDRESS                 # this PC as the invented servers see it
         self.backfill_s = 3 * 3600.0                 # how long the invented containers had been logging when the recipe was started here
         self.psutil = FakePsutil(self)
+        self._streams = 0                            # streaming completions in flight, to slow the invented decode down
 
     recipe_source = None   # set by the app: a callable returning the recipes (name, port, nodes, served_model_name, max_model_len)
 
@@ -157,6 +160,66 @@ class FakeWorld:
                     return 200, fake_metrics(m["served"], time.time() - self.served_since.get(recipe, self.started),
                                              drafter=any(m["served"].startswith(d) for d in self.drafters), seed=m["port"])
         return 0, "connection refused"
+
+
+    # ------------------------------------------------------------------ chat completions (the speed card)
+    def speed_transport(self) -> Any:
+        """An httpx transport that answers streaming chat completions of the running invented servers, a little slower the more streams are open."""
+        return httpx.MockTransport(self._speed_handler)
+
+    async def _speed_handler(self, request: Any) -> Any:
+        meta = self.recipes_meta()
+        url = str(request.url)
+        match = None
+        with self.lock:
+            for recipe, nodes in self.serving.items():
+                m = meta.get(recipe)
+                if m and f":{m['port']}/" in url and set(m["nodes"]) <= nodes:
+                    match = m
+        if match is None or not url.endswith("/chat/completions") or request.method != "POST":
+            return httpx.Response(404 if match else 503, json={"error": {"message": "not available (demo)"}})
+        body = json.loads(request.content or b"{}")
+        if not body.get("stream"):
+            return httpx.Response(400, json={"error": {"message": "the demo only streams"}})
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=_FakeStream(self, match["served"], body))
+
+
+class _FakeStream(httpx.AsyncByteStream):
+    """Server-sent events of one invented completion: reasoning first, then the answer, then ``usage`` and ``[DONE]``."""
+
+    def __init__(self, world: "FakeWorld", model: str, body: dict[str, Any]):
+        self.world, self.model, self.body = world, model, body
+
+    async def __aiter__(self):
+        import asyncio
+
+        n = int(self.body.get("max_tokens") or 64)
+        usage = bool((self.body.get("stream_options") or {}).get("include_usage"))
+        with self.world.lock:
+            self.world._streams += 1
+            active = self.world._streams
+        try:
+            await asyncio.sleep(0.02 + 0.004 * active)                       # prefill: the first token waits for the batch
+            for i in range(n):
+                if i:
+                    await asyncio.sleep(0.0012 * (1 + self.world._streams / 8))
+                key = "reasoning_content" if i < 12 else "content"
+                chunk = {"id": "cmpl-demo", "object": "chat.completion.chunk", "model": self.model,
+                         "choices": [{"index": 0, "delta": {key: f"w{i} "}, "finish_reason": None}]}
+                yield f"data: {json.dumps(chunk)}\n\n".encode()
+            end = {"id": "cmpl-demo", "object": "chat.completion.chunk", "model": self.model, "choices": [{"index": 0, "delta": {}, "finish_reason": "length"}]}
+            yield f"data: {json.dumps(end)}\n\n".encode()
+            if usage:
+                tail = {"id": "cmpl-demo", "object": "chat.completion.chunk", "model": self.model, "choices": [],
+                        "usage": {"prompt_tokens": 40, "completion_tokens": n, "total_tokens": 40 + n}}
+                yield f"data: {json.dumps(tail)}\n\n".encode()
+            yield b"data: [DONE]\n\n"
+        finally:
+            with self.world.lock:
+                self.world._streams -= 1
+
+    async def aclose(self) -> None:
+        return None
 
 
 PC_ADDRESS = "192.0.2.10"
@@ -313,6 +376,9 @@ def fake_metrics(model: str, up_s: float, *, drafter: bool = False, seed: int = 
         lines.extend([f"# HELP vllm:{name} Counter (demo).", f"# TYPE vllm:{name} counter", f"vllm:{name}_total{{{lab}}} {float(value)}",
                       f"vllm:{name}_created{{{lab}}} 1.7e9"])
 
+    lines.extend(["# HELP vllm:cache_config_info Information of the cache configuration.", "# TYPE vllm:cache_config_info gauge",
+                  f'vllm:cache_config_info{{{lab},block_size="16",cache_dtype="auto",gpu_memory_utilization="0.8",num_cpu_blocks="None",'
+                  f'num_gpu_blocks="{int(262144 + seed % 7)}"}} 1.0'])
     gauge("num_requests_running", float(running))
     gauge("num_requests_waiting", float(waiting))
     gauge("kv_cache_usage_perc", round(kv, 5))

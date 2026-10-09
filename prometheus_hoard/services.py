@@ -20,6 +20,7 @@ from .models import Models
 from .power import Power
 from .recipes import Recipes
 from .serving import Serving
+from .speedcard import SpeedCards
 from .transport import run_script
 
 log = logging.getLogger("prometheus")
@@ -65,6 +66,8 @@ class Services:
         self.clients = Clients(self.serving.infos, config.clients_path, runner=self._read_access_log, containers=self.recipes.log_containers,
                                names=lambda: self.settings["client_names"], spark_addrs=self.spark_addresses, node_name=self._node_name,
                                touched=lambda: self.serving.last_touch, **extra)
+        self.speedcards = SpeedCards(self.recipes.endpoints, self.jobs, config.speedcards_path, get_json=self.recipes.http, get_text=self.serving.get,
+                                     recipe=self.recipes.load, **({"transport": self.world.speed_transport()} if self.world is not None else {}))
         self._bg: Optional[threading.Thread] = None
         self._stop = threading.Event()
 
