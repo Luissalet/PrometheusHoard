@@ -146,6 +146,8 @@ def test_xid_events_tool_filters(call, services, world):
     services.xid.notifier = None
     world.kernel_log["spark1"] = [XID79]
     world.kernel_log["spark3"] = [GSP]
+    # Fixed log lines: read them with a clock next to when they were written, not today's date.
+    services.xid.clock = lambda: max(parse_stamp(XID79)[0], parse_stamp(GSP)[0]) + 60
     services.xid.scan_once()
     everything = call("xid_events")
     assert everything["total"] == 2 and everything["counts"] == {"spark1": 1, "spark3": 1} and everything["enabled"] is True
