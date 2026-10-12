@@ -222,6 +222,8 @@ class ExecArgs(BaseModel):
 
 class SettingsSetArgs(BaseModel):
     nodes: Optional[list[dict[str, Any]]] = Field(None, description="The full list of Sparks: {id, name, ssh, enabled, api_host, color}.")
+    nodes_patch: Optional[dict[str, dict[str, Any]]] = Field(None, description="Change only some Sparks without resending the list: {spark id: the fields to change} (id renames; an unknown id adds a Spark and needs ssh). Applied after nodes.")
+    nodes_remove: Optional[list[str]] = Field(None, description="Ids of Sparks to remove (already gone ones are ignored).")
     recipes_dir: Optional[str] = None
     models_dirs: Optional[list[str]] = None
     hf_cache: Optional[bool] = None
@@ -281,7 +283,7 @@ def _exec(s: Services, a: ExecArgs) -> Any:
 def _settings_set(s: Services, a: SettingsSetArgs) -> Any:
     changes = {k: v for k, v in a.model_dump().items() if v is not None}
     data = s.settings.update(changes)
-    if "nodes" in changes or "ssh_timeout_s" in changes:
+    if {"nodes", "nodes_patch", "nodes_remove", "ssh_timeout_s"} & set(changes):
         s.cluster.rebuild()
     s.models.invalidate()
     return data
