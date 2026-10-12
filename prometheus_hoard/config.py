@@ -160,12 +160,17 @@ class Settings:
     def update(self, changes: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             data = copy.deepcopy(self._data)
+            changes = dict(changes)
+            node_patch = changes.pop("nodes_patch", None)
+            node_remove = changes.pop("nodes_remove", None)
             for key, value in changes.items():
                 if key not in DEFAULT_SETTINGS:
                     raise ValueError(f"Unknown setting: {key}")
                 if value is None:
                     continue
                 data[key] = value
+            if node_patch or node_remove:
+                data["nodes"] = patch_nodes(data["nodes"], node_patch or {}, node_remove or [])
             data["nodes"] = [normalize_node(n) for n in data["nodes"]]
             ids = [n["id"] for n in data["nodes"]]
             if len(set(ids)) != len(ids):
@@ -183,6 +188,35 @@ class Settings:
             self._data = data
             write_json_atomic(self.path, data)
             return copy.deepcopy(data)
+
+
+NODE_FIELDS = ("id", "name", "ssh", "enabled", "api_host", "host", "proxy_jump", "color")
+
+
+def patch_nodes(nodes: list[dict[str, Any]], patch: dict[str, Any], remove: list[str]) -> list[dict[str, Any]]:
+    """Merge only the given fields into the Sparks they name, leaving every other Spark and field as it is.
+
+    ``remove`` drops Sparks by id (an id that is already gone is ignored). ``patch`` maps an existing Spark id to the fields to change
+    (``id`` renames it); an id that does not exist yet adds a Spark and then needs at least ``ssh``."""
+    if not isinstance(patch, dict) or not isinstance(remove, list):
+        raise ValueError("nodes_patch must be an object {id: fields} and nodes_remove a list of ids")
+    gone = {str(i).strip().lower() for i in remove}
+    out = [dict(n) for n in nodes if str(n.get("id")).lower() not in gone]
+    for raw_id, fields in patch.items():
+        node_id = str(raw_id).strip().lower()
+        if not isinstance(fields, dict):
+            raise ValueError(f"nodes_patch[{raw_id}] must be an object of fields")
+        unknown = [k for k in fields if k not in NODE_FIELDS]
+        if unknown:
+            raise ValueError(f"Unknown Spark field: {unknown[0]}")
+        current = next((n for n in out if n["id"] == node_id), None)
+        if current is not None:
+            current.update(fields)
+        elif fields.get("ssh"):
+            out.append({**fields, "id": fields.get("id") or node_id})
+        else:
+            raise ValueError(f"Unknown Spark: {node_id}")
+    return out
 
 
 def normalize_client_names(raw: Any) -> dict[str, str]:
