@@ -51,6 +51,16 @@ The MCP bridge is `python mcp_server.py` (42 tools; `faustus-plugin.json` descri
 - Wake-on-LAN works only if the firmware of the Spark has it enabled.
 - Whole folders cannot be downloaded to the PC in one go (send them to another Spark or compress them first).
 
+## Faustus assistant
+
+Once the shared Hoard Link launcher is installed, the app shows the family's Faustus panel (a floating button). The conversation, the model and the tools live in Faustus; this app only tells the panel what is open.
+
+- **Context per view.** The panel receives the Spark open on its page as kind `spark` (online, power state, enabled, host and SSH data, error), up to 8 live deployments as `deployment` (recipe id, state, nodes, head, base URL, served model name, engine, step) and, on the settings page, `settings` (recipe and model folders, default endpoint, polling). A client being renamed is named as `client`. The view reports the page (`cluster`, `spark`, `serving`, `files`, `models`, `settings`). The model-hub access token is never sent.
+- **Unsaved fields.** The panel asks for them with the `prometheus:context-request` window event. The forms `settings-form`, `model-download-new` (no object yet), `client-name-form` and `file-editor` (only the file path and the draft length, not the text) answer with a `dirty` flag.
+- **Refresh.** When the assistant finishes a turn the open view reloads in place (`hoard:copilot-turn-end` / `window.hoardCopilot.onTurnEnd`). On the settings page, fields you did not touch follow the new values, typed ones stay, and Sparks you added stay.
+- **Saving.** The settings page sends only the changed fields to `settings_set`. New arguments: `nodes_patch` (`{spark id: fields to change}`; an id renames, an unknown id adds a Spark and needs `ssh`) and `nodes_remove` (ids to drop), so one Spark changes without resending the list. Other settings merge by key.
+- **Tests.** `node --test client/copilot-context.test.mjs` and `python -m pytest tests/test_settings_patch.py`.
+
 ## Development
 
 ```
