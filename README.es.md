@@ -51,4 +51,14 @@ El puente MCP es `python mcp_server.py` (42 herramientas). Las destructivas (bor
 - El wake-on-LAN solo funciona si el firmware de la Spark lo tiene activado.
 - No descarga carpetas enteras al PC de una vez (se envían a otra Spark o se comprimen antes).
 
+## Asistente de Faustus
+
+Con el lanzador compartido de Hoard Link instalado, la app muestra el panel de Faustus de la familia (un botón flotante). La conversación, el modelo y las herramientas viven en Faustus; esta app solo le dice al panel qué hay abierto.
+
+- **Contexto por vista.** El panel recibe el Spark abierto en su página como `spark` (conectado, estado de energía, activado, datos de host y SSH, error), hasta 8 despliegues activos como `deployment` (id de receta, estado, nodos, cabeza, URL base, nombre del modelo servido, motor, paso) y, en la página de ajustes, `settings` (carpetas de recetas y modelos, endpoint por defecto, sondeo). Un cliente que se está renombrando se nombra como `client`. La vista indica la página (`cluster`, `spark`, `serving`, `files`, `models`, `settings`). El token de acceso al repositorio de modelos nunca se envía.
+- **Campos sin guardar.** El panel los pide con el evento de ventana `prometheus:context-request`. Los formularios `settings-form`, `model-download-new` (aún sin objeto), `client-name-form` y `file-editor` (solo la ruta del archivo y la longitud del borrador, no el texto) responden con una marca `dirty`.
+- **Refresco.** Cuando el asistente termina un turno, la vista abierta se recarga en el sitio (`hoard:copilot-turn-end` / `window.hoardCopilot.onTurnEnd`). En ajustes, lo que no has tocado sigue a los valores nuevos, lo escrito se queda y los Sparks que añadiste también.
+- **Guardado.** La página de ajustes envía solo los campos cambiados a `settings_set`. Argumentos nuevos: `nodes_patch` (`{id del Spark: campos a cambiar}`; un id renombra, un id desconocido añade un Spark y necesita `ssh`) y `nodes_remove` (ids a quitar), de modo que un Spark cambia sin reenviar la lista. El resto de ajustes se fusionan por clave.
+- **Pruebas.** `node --test client/copilot-context.test.mjs` y `python -m pytest tests/test_settings_patch.py`.
+
 Licencia MIT.
