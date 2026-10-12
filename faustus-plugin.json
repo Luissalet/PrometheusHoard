@@ -21,6 +21,9 @@
     "capacity-card",
     "gpu-error-watch"
   ],
+  "x-family": {
+    "copilot": true
+  },
   "placeholders": [
     "PROMETHEUS_DIR",
     "APP_URL",
