@@ -4,6 +4,7 @@ import { initialLang, makeT, saveLang } from "./i18n.js";
 import { AppContext } from "./context.js";
 import { createSerialPoll } from "./polling.js";
 import { ConfirmDialog, Icon, ICONS } from "./components/ui.jsx";
+import { useCopilotRefresh } from "./components/hooks.js";
 import Equipo from "./pages/Equipo.jsx";
 import Spark from "./pages/Spark.jsx";
 import Sirviendo from "./pages/Sirviendo.jsx";
@@ -108,6 +109,7 @@ export default function App() {
     }
   }, []);
   const changed = useCallback(() => { setVersion((v) => v + 1); refreshOv(); }, [refreshOv]);
+  useCopilotRefresh(changed);   // the assistant finished a turn: reload the data on screen in place (pages keep their forms)
 
   const page = PAGES.find((p) => p.path === route.page) || PAGES[0];
   // Poll every 2 s on the cluster pages, every 3 s while something is starting or copying, else every 10 s; only while the tab is visible.

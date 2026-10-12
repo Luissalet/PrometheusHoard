@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { useApp } from "../context.js";
-import { splitList } from "../format.js";
+import { rebaseSettingsForm, settingsPatch, settingsToForm } from "../copilot-context.js";
+import { useContextProvider, useCopilotRefresh } from "../components/hooks.js";
 import { Busy, Chip, ErrorBox, Field, Icon, ICONS, Section, Spinner, Switch, useBusy, useLoad } from "../components/ui.jsx";
 
 const NUMS = ["poll_s", "idle_poll_s", "history_min", "ssh_timeout_s", "xid_interval_s"];
@@ -14,22 +15,29 @@ export default function Ajustes() {
   const [token, setToken] = useState("");
   const [busy, run] = useBusy();
 
+  const baseRef = useRef(null);     // the settings as last loaded, in form shape
+  const resetRef = useRef(false);   // the next load replaces the form (after saving or reverting) instead of merging into it
+
+  // A reload keeps what the person typed: fields they did not touch follow the loaded settings (an assistant edit shows up).
   useEffect(() => {
     if (!settings.data) return;
-    const s = settings.data;
-    setForm({
-      nodes: (s.nodes || []).map((n) => ({ ...n })),
-      recipes_dir: s.recipes_dir || "",
-      models_dirs: (s.models_dirs || []).join("\n"),
-      hf_cache: !!s.hf_cache,
-      poll_s: s.poll_s, idle_poll_s: s.idle_poll_s, history_min: s.history_min, ssh_timeout_s: s.ssh_timeout_s,
-      show_system: !!s.show_system,
-      trash_dir: s.trash_dir || "",
-      remote_dir: s.remote_dir || "",
-      default_endpoint: s.default_endpoint || "",
-      xid_watch: s.xid_watch !== false, xid_interval_s: s.xid_interval_s ?? 60, xid_notify: s.xid_notify !== false,
-    });
+    const next = settingsToForm(settings.data);
+    const prev = baseRef.current;
+    baseRef.current = next;
+    if (!prev || resetRef.current) {
+      resetRef.current = false;
+      setForm(next);
+    } else {
+      setForm((f) => (f ? rebaseSettingsForm(prev, next, f) : next));
+    }
   }, [settings.data]);
+
+  useCopilotRefresh(() => { settings.reload(); recipes.reload(); });
+  useContextProvider(() => {
+    if (!form || !baseRef.current) return null;
+    const fields = settingsPatch(baseRef.current, form);   // only what differs from the loaded settings; never the Hugging Face token
+    return { kind: "settings-form", object_id: "settings", dirty: Object.keys(fields).length > 0, fields };
+  });
 
   if (!form) {
     return (
@@ -58,21 +66,10 @@ export default function Ajustes() {
   const invalid = dupes.length > 0 || badIds.length > 0 || NUMS.some((k) => form[k] === "" || Number.isNaN(Number(form[k])));
 
   const save = () => run("save", async () => {
-    const body = {
-      nodes: form.nodes.map((n) => ({ id: n.id.trim(), name: n.name.trim() || n.id.trim(), ssh: n.ssh.trim(), enabled: !!n.enabled, api_host: (n.api_host || "").trim(),
-                                        host: (n.host || "").trim(), proxy_jump: (n.proxy_jump || "").trim(), color: n.color || "" })),
-      recipes_dir: form.recipes_dir.trim(),
-      models_dirs: splitList(form.models_dirs),
-      hf_cache: form.hf_cache,
-      show_system: form.show_system,
-      trash_dir: form.trash_dir.trim(),
-      remote_dir: form.remote_dir.trim(),
-      default_endpoint: form.default_endpoint,
-      xid_watch: form.xid_watch,
-      xid_notify: form.xid_notify,
-    };
-    for (const k of NUMS) body[k] = Number(form[k]);
-    await api.call("settings_set", body);
+    // Only the fields the person changed travel, and Sparks as a per-Spark patch, so an edit made meanwhile elsewhere survives.
+    const body = settingsPatch(baseRef.current, form);
+    if (Object.keys(body).length) await api.call("settings_set", body);
+    resetRef.current = true;
     notify(t("saved"));
     settings.reload();
     recipes.reload();
@@ -212,7 +209,7 @@ export default function Ajustes() {
 
       {invalid && <div className="banner banner-warn">{t("fix_before_save")}</div>}
       <div className="flex justify-end gap-2 sticky-save">
-        <button type="button" className="btn" onClick={() => settings.reload().then(() => notify(t("reverted")))}>{t("revert")}</button>
+        <button type="button" className="btn" onClick={() => { resetRef.current = true; settings.reload().then(() => notify(t("reverted"))); }}>{t("revert")}</button>
         <Busy className="btn btn-primary" busy={busy.save} disabled={invalid} onClick={save}><Icon d={ICONS.save} size={15} />{t("save")}</Busy>
       </div>
       <button type="submit" hidden />

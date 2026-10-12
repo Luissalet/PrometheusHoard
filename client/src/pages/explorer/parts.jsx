@@ -3,6 +3,7 @@ import { api } from "../../api.js";
 import { useApp } from "../../context.js";
 import { bytes, clock, dirname, ext, num } from "../../format.js";
 import { Busy, Chip, ErrorBox, Field, Icon, ICONS, KindIcon, Modal, Spinner, useBusy, useLoad, useNarrow } from "../../components/ui.jsx";
+import { useContextProvider } from "../../components/hooks.js";
 
 const TEXT_EXT = new Set(["txt", "md", "json", "jsonl", "yaml", "yml", "toml", "ini", "cfg", "conf", "log", "csv", "tsv", "env", "xml", "html", "htm", "css",
   "sh", "bash", "zsh", "py", "js", "mjs", "cjs", "ts", "tsx", "jsx", "rs", "go", "c", "h", "cpp", "hpp", "java", "rb", "lua", "sql", "jinja", "j2", "svg", "service", "rst", "tex"]);
@@ -61,6 +62,10 @@ export function Preview({ node, entry, entries, writable, onOpen, onSaved, onClo
   const [busy, run] = useBusy();
   const text = useLoad(() => (kind === "text" ? api.call("file_read", { node, path: entry.path, max_bytes: 400_000 }) : Promise.resolve(null)), [node, entry?.path, entry?.mtime, kind]);
   useEffect(() => { setEditing(false); setRaw(false); }, [entry?.path]);
+  // An open text editor tells the assistant which file has unsaved edits (the text itself stays in the page).
+  useContextProvider(() => (editing && entry
+    ? { kind: "file-editor", object_id: `${node}:${entry.path}`, title: entry.name, dirty: draft !== (text.data?.text ?? ""), fields: { node, path: entry.path, draft_chars: draft.length } }
+    : null));
 
   if (!entry) {
     const many = (entries || []).length;

@@ -3,6 +3,9 @@ import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import "./hoard-theme.css";
 import "./index.css";
+import { installCopilot } from "./copilot-context.js";
+
+installCopilot();
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

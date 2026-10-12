@@ -1,6 +1,30 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { createSerialPoll } from "../polling.js";
+import { onCopilotRefresh } from "../copilot-context.js";
+
+/** Runs `fn` (reload what this view shows, in place) when the assistant finishes a turn. */
+export function useCopilotRefresh(fn) {
+  const ref = useRef(fn);
+  ref.current = fn;
+  useEffect(() => onCopilotRefresh(() => ref.current()), []);
+}
+
+/** Answers the assistant launcher's context request with a snapshot of this form: `getSnapshot()` returns { kind, object_id, dirty, fields } or null. */
+export function useContextProvider(getSnapshot) {
+  const ref = useRef(getSnapshot);
+  ref.current = getSnapshot;
+  useEffect(() => {
+    const onRequest = (event) => {
+      try {
+        const snapshot = ref.current();
+        if (snapshot) event.detail?.provide?.(snapshot);
+      } catch { /* a form that cannot describe itself is left out */ }
+    };
+    window.addEventListener("prometheus:context-request", onRequest);
+    return () => window.removeEventListener("prometheus:context-request", onRequest);
+  }, []);
+}
 
 // Calls `fn` now and then every `ms` while `active` is true. The first call is
 // unconditional: a page that only gets its data through polling must never wait

@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { useApp } from "../context.js";
 import { compact } from "../format.js";
 import { Busy, Chip, Icon, ICONS, Rel } from "./ui.jsx";
+import { useContextProvider } from "./hooks.js";
 
 const API_KEYS = { chat: "cl_api_chat", completions: "cl_api_completions", responses: "cl_api_responses", messages: "cl_api_messages", embeddings: "cl_api_embeddings", other: "cl_api_other" };
 const SHOWN = 5;
@@ -105,6 +106,7 @@ function Rename({ x, initial, onDone, onError }) {
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
   useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);
+  useContextProvider(() => ({ kind: "client-name-form", object_id: x.ip, title: initial || x.ip, dirty: text.trim() !== (initial || "").trim(), fields: { name: text.trim() } }));
   const save = async () => {
     setBusy(true);
     try {

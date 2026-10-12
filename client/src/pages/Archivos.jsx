@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { useApp } from "../context.js";
 import { bytes, clock, dirname, joinPath, num } from "../format.js";
 import { Bar, ErrorBox, Icon, ICONS, KindIcon, Menu, MenuButton, Spinner, useLoad, useNarrow, useStored } from "../components/ui.jsx";
+import { useCopilotRefresh } from "../components/hooks.js";
 import { Preview, Properties, TransferDialog, TrashView, typeLabel } from "./explorer/parts.jsx";
 
 // The clipboard outlives page changes (cut here, paste after a look at another page).
@@ -71,6 +72,7 @@ export default function Archivos({ param, query }) {
 
   const settings = useLoad(() => api.call("settings_get"), []);
   const listing = useLoad(() => (node && view === "files" ? api.call("files_list", { node, path, hidden }) : Promise.resolve(null)), [node, path, hidden, view]);
+  useCopilotRefresh(() => listing.reload());   // the assistant finished a turn: re-list in place (selection, search and the open preview stay)
   const data = listing.data && listing.data.node === node && !listing.error ? listing.data : null;
   const cwd = data?.path || "";
   const writable = !!data?.writable;

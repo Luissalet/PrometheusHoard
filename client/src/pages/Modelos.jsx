@@ -3,7 +3,7 @@ import { api } from "../api.js";
 import { useApp } from "../context.js";
 import { bytes, ctx, elapsed, num, pct, rel } from "../format.js";
 import { Bar, Busy, Chip, CopyButton, Empty, ErrorBox, Field, Icon, ICONS, Modal, Section, Spinner, Tabs, useBusy, useLoad } from "../components/ui.jsx";
-import { usePoll } from "../components/hooks.js";
+import { useContextProvider, usePoll } from "../components/hooks.js";
 import RecipeMeasurements from "../components/RecipeMeasurements.jsx";
 
 const ACTIVE = new Set(["running", "starting", "stopping", "failed", "unknown"]);
@@ -424,6 +424,11 @@ function HfModal({ nodes, onClose, onDone }) {
   const [revision, setRevision] = useState("");
   const [busy, run] = useBusy();
   const valid = /^[\w.-]+\/[\w.-]+$/.test(repo.trim());
+  // A creation form: the typed fields reach the assistant's context (no object exists yet).
+  useContextProvider(() => {
+    const fields = Object.fromEntries(Object.entries({ repo: repo.trim(), node, name: name.trim(), revision: revision.trim() }).filter(([, v]) => v));
+    return { kind: "model-download-new", object_id: null, dirty: !!(repo.trim() || name.trim() || revision.trim()), fields };
+  });
   const go = () => run("go", async () => {
     await api.call("model_download", { node, repo: repo.trim(), name: name.trim(), revision: revision.trim() });
     notify(t("download_started", { repo: repo.trim() }), "ok", { label: t("see_jobs"), href: "#/modelos?s=jobs" });
