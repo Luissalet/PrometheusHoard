@@ -15,7 +15,12 @@ recipe.json::
 
 Scripts receive ``PROM_RECIPE PROM_NODE PROM_ROLE (head|worker) PROM_RANK PROM_NODES PROM_HEAD PROM_HEAD_HOST PROM_HEAD_IP PROM_PORT
 PROM_MODEL PROM_SERVED_NAME PROM_MAX_MODEL_LEN PROM_FABRIC_<NODE>`` (the address of each other node on a CX7 subnet shared with this one)
-and the recipe ``env``."""
+and the recipe ``env``.
+
+``"coexist": true`` marks a small server that runs beside whatever else holds its Sparks (an embedding, reranking or decision model
+next to the main chat model): it neither blocks nor is blocked by the other recipes, only by another coexisting recipe on the same
+node and port, and its ``memory_gb`` is checked against the free memory as usual. ``"kind"`` says what the endpoint is for —
+``chat`` (the default), ``decision``, ``embedding``, ``rerank`` — so clients that pick a chat model leave the others alone."""
 
 from __future__ import annotations
 
@@ -136,6 +141,7 @@ class Recipes:
             "tags": list(raw.get("tags") or []), "files": files, "folder": str(folder), "notes": str(raw.get("notes") or ""),
             "measured": raw.get("measured") or {}, "scripts": {"start": start_s, "stop": stop_s, "health": health_s if health_s in files else ""},
             "context_verified": raw.get("context_verified"), "validation_status": raw.get("validation_status", ""),
+            "coexist": bool(raw.get("coexist")), "kind": (str(raw.get("kind") or "chat").strip().lower() or "chat"),
         }
 
     def list(self) -> list[dict[str, Any]]:
@@ -299,7 +305,8 @@ class Recipes:
                 "started": st.get("started"), "ready_at": st.get("ready_at"), "jobs": st.get("jobs", []),
                 "base_url": base + r["api_path"] if base else "", "port": r["port"], "served_model_name": r["served_model_name"],
                 "model": r["model"], "max_model_len": r["max_model_len"], "engine": r["engine"], "memory_gb": r["memory_gb"],
-                "context_verified": r.get("context_verified"), "validation_status": r.get("validation_status", ""), "health": health, "served": [m["id"] for m in health.get("models", [])] if health else [], "tags": r["tags"]}
+                "context_verified": r.get("context_verified"), "validation_status": r.get("validation_status", ""), "health": health, "served": [m["id"] for m in health.get("models", [])] if health else [], "tags": r["tags"],
+                "coexist": bool(r.get("coexist")), "kind": r.get("kind") or "chat"}
 
     def get(self, name: str) -> dict[str, Any]:
         r = self.load(name)
@@ -312,13 +319,23 @@ class Recipes:
         out: dict[str, list[str]] = {}
         deps = self.deployments(check=True)
         for d in deps:
-            if d["recipe"] == exclude or d["state"] == "stopped":
-                continue
+            if d["recipe"] == exclude or d["state"] == "stopped" or d.get("coexist"):
+                continue   # a coexisting server shares its Sparks: it holds none of them
             for n in d["nodes"]:
                 out.setdefault(n, []).append(d["recipe"])
         for x in self.detected(deps):
             for n in x["nodes"]:
                 out.setdefault(n, []).append(x["recipe"])
+        return out
+
+    def coexist_conflicts(self, r: dict[str, Any]) -> dict[str, list[str]]:
+        """A coexisting recipe only clashes with another coexisting one that uses the same port on one of its Sparks."""
+        out: dict[str, list[str]] = {}
+        for d in self.deployments(check=True):
+            if d["recipe"] == r["name"] or d["state"] == "stopped" or not d.get("coexist") or d["port"] != r["port"]:
+                continue
+            for n in set(d["nodes"]) & set(r["nodes"]):
+                out.setdefault(n, []).append(d["recipe"])
         return out
 
     # ------------------------------------------------------------------ start / stop
@@ -343,7 +360,7 @@ class Recipes:
         if health.get("up"):
             self._set(name, state="running", nodes=r["nodes"], external=True, message="Ya estaba en marcha.")
             return self.get(name)
-        busy = self.busy_nodes(exclude=name)
+        busy = self.coexist_conflicts(r) if r.get("coexist") else self.busy_nodes(exclude=name)
         conflicts = sorted({d for n in r["nodes"] for d in busy.get(n, [])})
         known = {x["name"] for x in self.list()}
         foreign = [c for c in conflicts if c not in known]
@@ -627,7 +644,7 @@ class Recipes:
                 for n in d["nodes"]:
                     taken.add((n, d["port"]))
         found = []
-        claimed = {n for d in deployments if d["state"] != "stopped" for n in d["nodes"]}
+        claimed = {n for d in deployments if d["state"] != "stopped" and not d.get("coexist") for n in d["nodes"]}
         candidates = []
         for node in self.cluster.enabled():
             for srv in (node.metrics or {}).get("servers", []):
@@ -684,13 +701,14 @@ class Recipes:
             if x["up"]:
                 out.append({"recipe": x["recipe"], "title": x["title"], "base_url": x["base_url"], "models": x["models"],
                             "max_model_len": x["max_model_len"], "nodes": x["nodes"], "head": x["node"], "engine": x["engine"],
-                            "default": False, "detected": True})
+                            "default": False, "detected": True, "kind": "chat"})
         for d in deps:
             if d["state"] != "running":
                 continue
             out.append({"recipe": d["recipe"], "title": d["title"], "base_url": d["base_url"], "models": d["served"] or [d["served_model_name"]],
                         "max_model_len": d["max_model_len"], "nodes": d["nodes"], "head": d["head"], "engine": d["engine"],
-                        "default": d["recipe"] == self.cluster.settings["default_endpoint"], "detected": False})
+                        "default": d["recipe"] == self.cluster.settings["default_endpoint"] and d.get("kind", "chat") == "chat",
+                        "detected": False, "kind": d.get("kind") or "chat", "coexist": bool(d.get("coexist"))})
         out.sort(key=lambda e: (not e["default"], e["detected"], e["recipe"]))
         return out
 
