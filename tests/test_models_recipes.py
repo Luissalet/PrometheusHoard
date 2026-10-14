@@ -113,7 +113,8 @@ def test_servers_started_outside_a_recipe_are_offered(call, services, world, mon
     monkeypatch.setattr(services.recipes, "http", lambda url, timeout=2.0: (200, {"data": [{"id": "manual"}]}) if ":8003/" in url else (0, "refused"))
     eps = call("endpoints")["endpoints"]
     assert eps == [{"recipe": "spark2-8003", "title": "manual (Spark2:8003)", "base_url": "http://spark-spark2.local:8003/v1", "models": ["manual"],
-                    "max_model_len": 4096, "nodes": ["spark2"], "head": "spark2", "engine": "vllm", "default": False, "detected": True}]
+                    "max_model_len": 4096, "nodes": ["spark2"], "head": "spark2", "engine": "vllm", "default": False, "detected": True,
+                    "kind": "chat"}]
     ov = call("sparks_overview")
     assert ov["detected"][0]["up"] and ov["nodes"][1]["deployments"][0]["detected"]
 
@@ -285,3 +286,26 @@ def test_the_panel_never_waits_for_a_slow_health_script(call, services, monkeypa
         time.sleep(0.05)
     dep = next(d for d in call("deployments")["deployments"] if d["recipe"] == "slow")
     assert dep["state"] == "running" and dep["external"]
+
+
+def test_a_coexisting_server_shares_the_sparks_of_the_main_model(call, services):
+    definition = {"nodes": ["spark2"], "port": 8095, "served_model_name": "thx-01", "kind": "decision", "coexist": True,
+                  "memory_gb": 2, "health_path": "/v1/models"}
+    r = call("recipe_write", {"recipe": "decider", "definition": definition, "scripts": {"start.sh": "echo a", "stop.sh": "echo b"}})
+    assert r["coexist"] is True and r["kind"] == "decision"
+    assert call("deploy_start", {"recipe": "glm53-tp3", "wait": True})["state"] == "running"
+    assert call("deploy_start", {"recipe": "decider", "wait": True})["state"] == "running"   # no conflict with the main model
+    eps = {e["recipe"]: e for e in call("endpoints")["endpoints"]}
+    assert eps["decider"]["kind"] == "decision" and eps["glm53-tp3"]["kind"] == "chat"
+    assert eps["decider"]["default"] is False
+    # Another main model replaces GLM but never counts the coexisting server as a conflict.
+    out = call("deploy_start", {"recipe": "qwen38-27b-1m"}, status=409)
+    assert out["conflicts"] == ["glm53-tp3"]
+    call("deploy_stop", {"recipe": "glm53-tp3"})
+    states = {x["recipe"]: x["state"] for x in call("deployments")["deployments"]}
+    assert states["decider"] == "running" and states["glm53-tp3"] == "stopped"
+    # Two coexisting servers on the same node and port do clash.
+    call("recipe_write", {"recipe": "decider-b", "definition": {**definition, "served_model_name": "laya"},
+                          "scripts": {"start.sh": "echo a", "stop.sh": "echo b"}})
+    assert call("deploy_start", {"recipe": "decider-b"}, status=409)["conflicts"] == ["decider"]
+    call("deploy_stop", {"recipe": "decider"})
