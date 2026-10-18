@@ -132,12 +132,25 @@ function useDeploy(reload) {
     setTimeout(reload, 600);
     await p;
   };
-  return { busy, start, stop };
+  const restart = (d) => run(`restart-${d.recipe}`, async () => {
+    await api.call("deploy_restart", { recipe: d.recipe });
+    notify(t("restarting_model", { title: d.title }));
+    reload();
+    changed();
+  }).catch(toastError);
+  return { busy, start, stop, restart };
+}
+
+function deploymentMessage(d, t, nodeName) {
+  if (d.state === "stopping" && d.operation === "restart") {
+    return d.current_node ? t("restart_unloading_node", { node: nodeName(d.current_node) }) : t("restarting_model", { title: d.title });
+  }
+  return d.message;
 }
 
 function LoadedCard({ d, nodes, onLogs, reload }) {
-  const { t, lang } = useApp();
-  const { busy, stop } = useDeploy(reload);
+  const { t, lang, nodeName } = useApp();
+  const { busy, stop, restart } = useDeploy(reload);
   return (
     <article className="panel card space-y-2.5">
       <div className="flex items-start gap-2">
@@ -151,7 +164,7 @@ function LoadedCard({ d, nodes, onLogs, reload }) {
       {d.state === "unknown" && <div className="banner banner-warn">{t("dep_unknown_help")}</div>}
       {(d.step || d.message) && d.state !== "running" && d.state !== "unknown" && (
         <div className={`banner ${d.state === "failed" ? "banner-danger" : "banner-info"}`}>
-          {d.step && <b>{t("step")}: {d.step}. </b>}{d.message}
+          {d.step && <b>{t("step")}: {d.step}. </b>}{deploymentMessage(d, t, nodeName)}
         </div>
       )}
       <NodeChips ids={d.nodes} head={d.head} nodes={nodes} />
@@ -169,6 +182,7 @@ function LoadedCard({ d, nodes, onLogs, reload }) {
       </dl>
       {d.external && <p className="help">{t("external_help")}</p>}
       <div className="flex flex-wrap gap-2 pt-1">
+        <Busy className="btn btn-sm" busy={busy[`restart-${d.recipe}`]} disabled={d.state === "starting" || d.state === "stopping"} onClick={() => restart(d)}><Icon d={ICONS.restart} size={14} />{t("restart_model")}</Busy>
         <Busy className="btn btn-sm btn-danger" busy={busy[`stop-${d.recipe}`]} disabled={d.state === "stopping"} onClick={() => stop(d)}><Icon d={ICONS.stop} size={13} />{t("unload")}</Busy>
         <button type="button" className="btn btn-sm" onClick={onLogs}><Icon d={ICONS.terminal} size={14} />{t("view_logs")}</button>
       </div>
@@ -205,8 +219,8 @@ function DetectedCard({ x, nodes }) {
 }
 
 function RecipeCard({ r, dep, nodes, reload, onLogs }) {
-  const { t, lang } = useApp();
-  const { busy, start, stop } = useDeploy(reload);
+  const { t, lang, nodeName } = useApp();
+  const { busy, start, stop, restart } = useDeploy(reload);
   if (r.invalid) {
     return (
       <article className="panel card space-y-2 card-invalid">
@@ -240,12 +254,13 @@ function RecipeCard({ r, dep, nodes, reload, onLogs }) {
       {(r.tags || []).length > 0 && <div className="flex flex-wrap gap-1">{r.tags.map((x) => <Chip key={x}>{x}</Chip>)}</div>}
       {r.notes && <p className="help" style={{ whiteSpace: "pre-wrap" }}>{r.notes}</p>}
       {measured && <RecipeMeasurements measured={measured} />}
-      {state === "starting" && dep && (
-        <div className="banner banner-info flex items-center gap-2"><span className="spinner" />{dep.step ? `${t("step")}: ${dep.step}. ` : ""}{dep.message || t("starting_wait")}</div>
+      {(state === "starting" || state === "stopping") && dep && (
+        <div className="banner banner-info flex items-center gap-2"><span className="spinner" />{dep.step ? `${t("step")}: ${dep.step}. ` : ""}{deploymentMessage(dep, t, nodeName) || t("starting_wait")}</div>
       )}
       {state === "failed" && dep?.message && <div className="banner banner-danger">{dep.message}</div>}
       {offline.length > 0 && !live && <p className="help"><Icon d={ICONS.warn} size={12} /> {t("recipe_offline", { names: offline.map((id) => nodes.find((n) => n.id === id)?.name || id).join(", ") })}</p>}
       <div className="flex flex-wrap gap-2 pt-1">
+        {(state === "running" || state === "unknown" || state === "failed") && <Busy className="btn btn-sm" busy={busy[`restart-${r.name}`]} onClick={() => restart(dep)}><Icon d={ICONS.restart} size={14} />{t("restart_model")}</Busy>}
         {state === "running" || state === "starting" || state === "unknown" ? (
           <Busy className="btn btn-sm btn-danger" busy={busy[`stop-${r.name}`]} onClick={() => stop(dep)}><Icon d={ICONS.stop} size={13} />{t("unload")}</Busy>
         ) : (
