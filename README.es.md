@@ -61,4 +61,14 @@ Con el lanzador compartido de Hoard Link instalado, la app muestra el panel de F
 - **Guardado.** La página de ajustes envía solo los campos cambiados a `settings_set`. Argumentos nuevos: `nodes_patch` (`{id del Spark: campos a cambiar}`; un id renombra, un id desconocido añade un Spark y necesita `ssh`) y `nodes_remove` (ids a quitar), de modo que un Spark cambia sin reenviar la lista. El resto de ajustes se fusionan por clave.
 - **Pruebas.** `node --test client/copilot-context.test.mjs` y `python -m pytest tests/test_settings_patch.py`.
 
+## Recuperación de generación estructural
+
+deploy_report_issue informa de degeneración tipada en una receta gestionada y devuelve un trabajo;
+deploy_recovery_status consulta su estado. Exige dos fallos estructurales en canarios completos antes
+de recargar con el lifecycle existente, lock del modelo principal y lease del Hub como Prometheus.
+Espera métricas nuevas de inactividad, revalida identidad/configuración y prueba después de recargar.
+Length, fences y errores lógicos aislados no disparan la recuperación. El manifiesto literal no verifica
+el algoritmo; recovered sólo describe esos postcanarios. No se han validado discriminativamente contra
+el estado malo conservado. [Alcance y límites](docs/recovery.md).
+
 Licencia MIT.

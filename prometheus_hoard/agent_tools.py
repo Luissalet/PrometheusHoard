@@ -204,6 +204,18 @@ class LogsArgs(RecipeArg):
     lines: int = Field(200, ge=10, le=5000)
 
 
+class DeployIssueArgs(BaseModel):
+    base_url: str = Field(..., description="Exact OpenAI base URL of a running, managed recipe.")
+    model: str = Field(..., min_length=1, description="Exact served model name.")
+    error_class: Literal["degenerate_output", "structurally_invalid_output"] = "degenerate_output"
+    reason: str = Field("", description="Observed structural symptom; not truncation, fences or an isolated logic error.")
+
+
+class RecoveryStatusArgs(BaseModel):
+    recovery_id: str = ""
+    recipe: str = ""
+
+
 class RecipeWriteArgs(RecipeArg):
     definition: dict[str, Any] = Field(..., description="recipe.json content.")
     scripts: dict[str, str] = Field(..., description="File name -> content; start.sh and stop.sh are required.")
@@ -398,6 +410,15 @@ TOOLS: list[Tool] = [
          lambda s, a: s.recipes.restart(a.recipe, wait=a.wait), 3600.0),
     Tool("deploy_logs", _d("Logs of a recipe's server and its start steps on a Spark. Registros del servidor.", synonyms="docker logs, errores"),
          LogsArgs, R, lambda s, a: s.recipes.logs(a.recipe, a.node, a.lines)),
+    Tool("deploy_report_issue", _d("Report structural degeneration of a managed model; confirm and recover as a job. Recuperar servidor.",
+                                 "Returns pending/deduplicated state promptly. Only two complete structural canary failures can trigger "
+                                 "the same managed recipe's reload, with principal lock, Hub lease, fresh idle checks and postchecks. "
+                                 "Never for length, Markdown or isolated logical mistakes. Literal manifests do not verify the generated algorithm.",
+                                 synonyms="salida degenerada, corrupción estructural, recuperación, recarga automática"),
+         DeployIssueArgs, W, lambda s, a: s.recovery.report(a.base_url, a.model, a.error_class, a.reason)),
+    Tool("deploy_recovery_status", _d("Read structural recovery jobs and their limited verification scope. Estado de recuperación.",
+                                    synonyms="recuperación pendiente, canarios, recarga, estado del servidor"),
+         RecoveryStatusArgs, R, lambda s, a: s.recovery.status(a.recovery_id, a.recipe)),
     Tool("endpoints", _d("OpenAI-compatible endpoints served by the Sparks right now. URLs para Faustus.",
                          synonyms="api, base url, backend, servidor de modelos"), Empty, R, lambda s, a: {"endpoints": s.recipes.endpoints()}),
     Tool("serving_stats", _d("Live figures of the running model servers: tokens/s, queue, KV cache, latency. Rendimiento en vivo.",

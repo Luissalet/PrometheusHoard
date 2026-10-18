@@ -642,6 +642,7 @@ const D = {
   jobkind_download: ["Descarga", "Download"],
   jobkind_copy: ["Copia", "Copy"],
   jobkind_recipe: ["Paso de receta", "Recipe step"],
+  jobkind_recovery: ["Verificación estructural", "Structural verification"],
   job_cancelled_msg: ["Cancelado: {title}", "Cancelled: {title}"],
   show_more: ["Mostrar {n} más", "Show {n} more"],
   show_less: ["Mostrar menos", "Show less"],
