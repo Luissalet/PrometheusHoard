@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from copy import deepcopy
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -40,10 +41,13 @@ def recovery(tmp_path):
         def list(self): return [deepcopy(recipe)]
         def base_url(self, r): return "http://invented.invalid:1234"
         def ready(self, r): return {"up": True}
-        def restart(self, name, *, wait, before_stop):
+        def restart(self, name, *, wait, before_stop, before_start):
             if self.before: self.before()
             before_stop()
             self.stop_calls += 1
+            self.state["own"]["state"] = "stopped"
+            before_start()
+            self.state["own"]["state"] = "running"
             self.state["own"]["started"] += 1
             return {"state": "running", "external": False}
     serving = SimpleNamespace(get=lambda *a: (200, "vllm:num_requests_running 0\nvllm:num_requests_waiting 0"))
@@ -195,7 +199,7 @@ def test_existing_async_restart_is_followed_with_coordination_renewal(recovery):
     @contextmanager
     def coordinate(name):
         yield lambda: renewals.append(1)
-    def restart(name, *, wait, before_stop):
+    def restart(name, *, wait, before_stop, before_start):
         assert wait is False
         before_stop()
         recovery.recipes.stop_calls += 1
@@ -209,6 +213,91 @@ def test_existing_async_restart_is_followed_with_coordination_renewal(recovery):
     first = report(recovery); recovery.jobs.run()
     assert recovery.status(first["id"])["recoveries"][0]["status"] == "recovered"
     assert len(renewals) >= 4
+
+
+@pytest.mark.parametrize("phase", ["stopping", "starting"])
+def test_renewal_failure_during_restart_keeps_supervising_until_terminal(recovery, phase):
+    released, renewals = [], []
+    @contextmanager
+    def coordinate(name):
+        def renew():
+            renewals.append(1)
+            if recovery.recipes.state["own"]["state"] == phase:
+                raise Deferred("temporary renewal failure")
+        try:
+            yield renew
+        finally:
+            released.append(1)
+            assert not recovery.recipes._restarting
+    def restart(name, *, wait, before_stop, before_start):
+        before_stop()
+        recovery.recipes.stop_calls += 1
+        recovery.recipes.state["own"]["state"] = phase
+        recovery.recipes._restarting = {"own"}
+    def finish(seconds):
+        assert not released
+        current = recovery.status()["recoveries"][0]
+        assert current["coordination_confirmed"] is False
+        recovery.recipes.state["own"].update(state="running", started=2)
+        recovery.recipes._restarting.clear()
+    recovery.coordinate, recovery.recipes.restart, recovery.sleep = coordinate, restart, finish
+    first = report(recovery); recovery.jobs.run()
+    assert recovery.status(first["id"])["recoveries"][0]["status"] == "recovered"
+    assert released == [1] and len(renewals) >= 3
+
+
+@pytest.mark.parametrize("cancel", ["shutdown", "job"])
+@pytest.mark.parametrize("phase", ["stopping", "starting"])
+def test_cancellation_during_restart_does_not_release_while_worker_runs(recovery, cancel, phase):
+    released = []
+    job = SimpleNamespace(cancelled=False, report=lambda *args: None)
+    @contextmanager
+    def coordinate(name):
+        try:
+            yield lambda: None
+        finally:
+            released.append(1)
+            assert not recovery.recipes._restarting
+    def restart(name, *, wait, before_stop, before_start):
+        before_stop()
+        recovery.recipes.stop_calls += 1
+        recovery.recipes.state["own"]["state"] = phase
+        recovery.recipes._restarting = {"own"}
+        if cancel == "shutdown": recovery.close()
+        else: job.cancelled = True
+    def finish(seconds):
+        assert not released
+        recovery.recipes.state["own"].update(state="running", started=2)
+        recovery.recipes._restarting.clear()
+    recovery.coordinate, recovery.recipes.restart, recovery.sleep = coordinate, restart, finish
+    first = report(recovery)
+    recovery.jobs.work(job)
+    assert recovery.status(first["id"])["recoveries"][0]["status"] == "cancelled"
+    assert released == [1]
+
+
+def test_restart_call_error_after_worker_launch_still_follows_worker(recovery):
+    released = []
+    @contextmanager
+    def coordinate(name):
+        try: yield lambda: None
+        finally:
+            released.append(1)
+            assert not recovery.recipes._restarting
+    def restart(name, *, wait, before_stop, before_start):
+        before_stop()
+        recovery.recipes.stop_calls += 1
+        recovery.recipes.state["own"]["state"] = "stopping"
+        recovery.recipes._restarting = {"own"}
+        raise RuntimeError("response failed after launch")
+    def finish(seconds):
+        assert not released
+        recovery.recipes.state["own"].update(state="running", started=2)
+        recovery.recipes._restarting.clear()
+    recovery.coordinate, recovery.recipes.restart, recovery.sleep = coordinate, restart, finish
+    first = report(recovery); recovery.jobs.run()
+    assert recovery.status(first["id"])["recoveries"][0]["status"] == "failed"
+    assert released == [1]
 
 
 def test_pending_survives_app_restart_as_interrupted(recovery):
@@ -292,4 +381,97 @@ def test_recipe_restart_guard_failure_has_no_stop_steps(services):
         services.recipes.restart("glm53-tp3", before_stop=refuse)
     assert services.recipes.state["glm53-tp3"] == before
     assert set(services.jobs.jobs) == jobs
+    assert not services.recipes._stopping and not services.recipes._restarting
+
+
+@pytest.mark.parametrize("change", ["coordination", "files", "shutdown", "job"])
+def test_before_start_revalidates_after_stop_before_loading(recovery, change):
+    job = SimpleNamespace(cancelled=False, report=lambda *args: None)
+    load_calls = []
+    @contextmanager
+    def coordinate(name):
+        def renew():
+            if change == "coordination" and recovery.recipes.state["own"]["state"] == "stopped":
+                raise Deferred("lease expired while stopping")
+        yield renew
+    def restart(name, *, wait, before_stop, before_start):
+        before_stop()
+        recovery.recipes.stop_calls += 1
+        recovery.recipes.state["own"]["state"] = "stopped"
+        if change == "files":
+            (recovery.path.parent / "recipe" / "recipe.json").write_text("changed")
+        elif change == "shutdown": recovery.close()
+        elif change == "job": job.cancelled = True
+        before_start()
+        load_calls.append(1)
+    recovery.coordinate, recovery.recipes.restart = coordinate, restart
+    first = report(recovery)
+    recovery.jobs.work(job)
+    assert not load_calls and recovery.recipes.stop_calls == 1
+    assert recovery.status(first["id"])["recoveries"][0]["status"] != "recovered"
+
+
+def test_postcheck_coordination_failure_never_restarts_again(recovery):
+    @contextmanager
+    def coordinate(name):
+        def renew():
+            if recovery.recipes.state["own"]["started"] > 1:
+                raise Deferred("Hub unavailable after restart")
+        yield renew
+    recovery.coordinate = coordinate
+    first = report(recovery); recovery.jobs.run()
+    final = recovery.status(first["id"])["recoveries"][0]
+    assert final["status"] == "unverified" and final["coordination_confirmed"] is False
+    assert recovery.recipes.stop_calls == 1
+
+
+@pytest.mark.parametrize("phase", ["stopping", "starting"])
+def test_external_app_close_waits_for_active_lifecycle(recovery, phase):
+    entered, finish, closed = threading.Event(), threading.Event(), threading.Event()
+    def restart(name, *, wait, before_stop, before_start):
+        before_stop()
+        recovery.recipes.stop_calls += 1
+        recovery.recipes.state["own"]["state"] = phase
+        recovery.recipes._restarting = {"own"}
+        entered.set()
+    def finish_worker(seconds):
+        assert finish.wait(3), "test must finish the synthetic lifecycle"
+        recovery.recipes.state["own"]["state"] = "failed"
+        recovery.recipes._restarting.clear()
+    def close():
+        recovery.close()
+        closed.set()
+    recovery.recipes.restart, recovery.sleep = restart, finish_worker
+    first = report(recovery)
+    worker = threading.Thread(target=recovery.jobs.run)
+    worker.start()
+    assert entered.wait(3)
+    closer = threading.Thread(target=close)
+    closer.start()
+    try:
+        assert recovery._closed.wait(3)
+        assert not closed.wait(0.05), "close returned while its lifecycle still acted"
+    finally:
+        finish.set()
+        worker.join(3)
+        closer.join(3)
+    assert closed.is_set() and not worker.is_alive() and not closer.is_alive()
+    assert recovery.status(first["id"])["recoveries"][0]["status"] == "cancelled"
+
+
+def test_native_restart_before_start_guard_denies_load_after_all_stop_steps(services, monkeypatch):
+    name = "glm53-tp3"
+    services.recipes.start(name, wait=True)
+    steps, guards = [], []
+    original = services.recipes._run_step
+    def run(recipe, node, script, *args, **kwargs):
+        steps.append(script)
+        return original(recipe, node, script, *args, **kwargs)
+    def refuse():
+        guards.append(services.recipes.state[name]["state"])
+        raise Deferred("coordination no longer held")
+    monkeypatch.setattr(services.recipes, "_run_step", run)
+    result = services.recipes.restart(name, wait=True, before_start=refuse)
+    assert result["state"] == "failed"
+    assert guards == ["stopped"] and steps == ["stop.sh"] * 3
     assert not services.recipes._stopping and not services.recipes._restarting

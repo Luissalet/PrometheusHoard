@@ -70,5 +70,7 @@ Espera métricas nuevas de inactividad, revalida identidad/configuración y prue
 Length, fences y errores lógicos aislados no disparan la recuperación. El manifiesto literal no verifica
 el algoritmo; recovered sólo describe esos postcanarios. No se han validado discriminativamente contra
 el estado malo conservado. [Alcance y límites](docs/recovery.md).
+Los fallos de renovación quedan visibles; la supervisión sigue hasta estabilizar el lifecycle y exige
+coordinación fresca antes de su worker de carga. Cancelar no abandona una descarga/carga activa.
 
 Licencia MIT.

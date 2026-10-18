@@ -183,7 +183,8 @@ class HubCoordination:
                     code, result = family._post("/api/agora/lock", {
                         "agent": "prometheus", "resources": ["model:principal"], "ttl_s": 10800}, 5)
                     lcode, leased = family._post("/api/lease/renew", {"lease_id": taken.lease_id}, 5)
-                    if code != 200 or not result.get("ok") or lcode != 200 or not leased.get("ok"):
+                    if (code != 200 or not isinstance(result, dict) or not result.get("ok") or
+                            lcode != 200 or not isinstance(leased, dict) or not leased.get("ok")):
                         raise Deferred("recovery coordination was lost")
                 yield validate
         except Deferred:
@@ -205,6 +206,8 @@ class Recovery:
         self.generate, self.coordinate = generate, coordinate or HubCoordination()
         self.clock, self.sleep, self.cooldown_s = clock, sleep, cooldown_s
         self._lock = threading.RLock()
+        self._lifecycle_done = threading.Condition(self._lock)
+        self._lifecycle_workers: set[int] = set()
         self._closed = threading.Event()
         data = read_json(path, default={}) or {}
         self.records = data.get("recoveries", {})
@@ -273,8 +276,7 @@ class Recovery:
                     if (not recovery_id or r["id"] == recovery_id) and (not recipe or r["recipe"] == recipe)]
         return {"recoveries": sorted(rows, key=lambda r: r["created"], reverse=True), **SCOPE}
 
-    def _validate(self, record, *, stopping=False):
-        states = ("running", "stopping") if stopping else ("running",)
+    def _validate(self, record, *, states=("running",)):
         recipe, boot, fingerprint = self._target(record["base_url"], record["model"], states=states)
         if boot != record.get("replacement_boot", record["boot"]) or fingerprint != record["fingerprint"]:
             raise SparkError("changed", "The managed recipe, boot or files changed; recovery was not applied.")
@@ -282,7 +284,7 @@ class Recovery:
 
     def _idle(self, record):
         # Reuse Serving's getter/parser, but request a NEW sample; a cached zero is not an idle lease.
-        self._validate(record, stopping=True)
+        self._validate(record, states=("running", "stopping"))
         code, text = self.serving.get(metrics_url(record["base_url"]), 2.0)
         sample = aggregate(parse_metrics(text)) if code == 200 else None
         return bool(sample and sample["running"] == 0 and sample["waiting"] == 0)
@@ -301,6 +303,40 @@ class Recovery:
             self._recover(record, job)
         finally:
             job.report(1.0, json.dumps({"recovery_id": record["id"], "status": record["status"], **SCOPE}))
+
+    def _follow_restart(self, record, job, renew):
+        """Keep supervising our worker even if coordination or cancellation changes.
+
+        A failed renewal does not establish that the old lock/lease still exists. The
+        worker's before_start guard must obtain a fresh confirmation before loading.
+        Leaving this context early would voluntarily release any coordination that
+        does remain while stop/start is still acting on the deployment.
+        """
+        while (record["recipe"] in getattr(self.recipes, "_restarting", set()) or
+               self.recipes.state[record["recipe"]]["state"] in ("starting", "stopping")):
+            try:
+                renew()
+            except Exception as exc:
+                self._set(record, "restarting", coordination_confirmed=False, coordination_error=str(exc),
+                          cancellation_requested=self._closed.is_set() or job.cancelled)
+            else:
+                self._set(record, "restarting", coordination_confirmed=True, coordination_error="",
+                          cancellation_requested=self._closed.is_set() or job.cancelled)
+            self.sleep(2)
+
+    @contextmanager
+    def _lifecycle(self, job):
+        worker = threading.get_ident()
+        with self._lifecycle_done:
+            if self._closed.is_set() or job.cancelled:
+                raise Deferred("recovery cancelled before lifecycle")
+            self._lifecycle_workers.add(worker)
+        try:
+            yield
+        finally:
+            with self._lifecycle_done:
+                self._lifecycle_workers.discard(worker)
+                self._lifecycle_done.notify_all()
 
     def _recover(self, record, job):
         while not self._closed.is_set() and not job.cancelled:
@@ -332,21 +368,34 @@ class Recovery:
                         if self._closed.is_set() or job.cancelled:
                             raise Deferred("recovery cancelled before stop")
                         renew()
-                        recipe = self._validate(record, stopping=True)
+                        recipe = self._validate(record, states=("running", "stopping"))
                         if not self.recipes.ready(recipe).get("up"):
                             raise Deferred("recipe ownership no longer confirmed")
                         if not self._idle(record):
                             raise Deferred("new running/waiting requests before stop")
                     before_stop()
                     self._set(record, "restarting", restart_started=self.clock())
-                    result = self.recipes.restart(record["recipe"], wait=False, before_stop=before_stop)
-                    # Follow the existing lifecycle in this same job; keep coordination renewed
-                    # even when a recipe legitimately takes longer than one lock TTL to load.
-                    while (record["recipe"] in getattr(self.recipes, "_restarting", set()) or
-                           self.recipes.state[record["recipe"]]["state"] in ("starting", "stopping")):
-                        renew()
-                        self.sleep(2)
+                    def before_start():
+                        if self._closed.is_set() or job.cancelled:
+                            raise Deferred("recovery cancelled before start")
+                        try:
+                            renew()
+                        except Exception as exc:
+                            self._set(record, "restarting", coordination_confirmed=False,
+                                      coordination_error=str(exc))
+                            raise
+                        self._validate(record, states=("stopped",))
+                    with self._lifecycle(job):
+                        try:
+                            self.recipes.restart(record["recipe"], wait=False, before_stop=before_stop,
+                                                 before_start=before_start)
+                        finally:
+                            # Also follow a worker if the restart call itself fails after launch.
+                            self._follow_restart(record, job, renew)
                     result = self.recipes.state[record["recipe"]]
+                    if self._closed.is_set() or job.cancelled:
+                        self._set(record, "cancelled")
+                        return
                     if result.get("state") != "running" or result.get("external"):
                         self._set(record, "failed", error="managed restart did not reach running")
                         return
@@ -358,7 +407,15 @@ class Recovery:
                         self._set(record, "cancelled")
                         return
                     self._set(record, "checking", replacement_boot=boot)
-                    renew()
+                    try:
+                        renew()
+                    except Exception as exc:
+                        # A reload has already happened. Do not re-enter confirmation
+                        # and potentially reload again because its postcheck lost Hub access.
+                        self._set(record, "unverified", coordination_confirmed=False,
+                                  coordination_error=str(exc), error="postcheck coordination unavailable")
+                        return
+                    self._set(record, "checking", coordination_confirmed=True, coordination_error="")
                     post = self._checks(record, job)
                     self._set(record, "recovered" if all(item["kind"] == "pass" for item in post) else "unverified",
                               after=post)
@@ -372,4 +429,10 @@ class Recovery:
         self._set(record, "cancelled")
 
     def close(self):
-        self._closed.set()
+        with self._lifecycle_done:
+            self._closed.set()
+            # Services.stop must not let process shutdown discard daemon workers
+            # halfway through a reload. A worker requesting its own cancellation
+            # cannot join itself; its finally block will finish the supervision.
+            if threading.get_ident() not in self._lifecycle_workers:
+                self._lifecycle_done.wait_for(lambda: not self._lifecycle_workers)
