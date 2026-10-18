@@ -516,11 +516,13 @@ class Recipes:
     def stop(self, name: str, *, wait: bool = True) -> dict[str, Any]:
         return self._stop(name, wait=wait, restart=False)
 
-    def restart(self, name: str, *, wait: bool = False) -> dict[str, Any]:
+    def restart(self, name: str, *, wait: bool = False,
+                before_stop: Optional[Callable[[], None]] = None) -> dict[str, Any]:
         """Reload the same recipe after every stop step has completed successfully."""
-        return self._stop(name, wait=wait, restart=True)
+        return self._stop(name, wait=wait, restart=True, before_stop=before_stop)
 
-    def _stop(self, name: str, *, wait: bool, restart: bool) -> dict[str, Any]:
+    def _stop(self, name: str, *, wait: bool, restart: bool,
+              before_stop: Optional[Callable[[], None]] = None) -> dict[str, Any]:
         r = self.load(name)
         with self._lock:
             current = self._threads.get(name)
@@ -543,6 +545,10 @@ class Recipes:
                     # the start is still inside a step: do not run stop.sh under it nor call it stopped; the cancel stays set,
                     # so the start leaves at its next check, and the stop can be repeated then.
                     raise SparkError("busy", f"{r['title']} is still finishing a start step; it will cancel itself, stop again in a moment.")
+            # Recovery revalidates ownership/configuration/idle after reserving this lifecycle
+            # operation. A denied guard leaves the existing running deployment untouched.
+            if before_stop is not None:
+                before_stop()
             self._set(name, state="stopping", step="stop", operation="restart" if restart else "stop", current_node="",
                       message="Reiniciando: descargando el modelo" if restart else "Parando")
         except BaseException:

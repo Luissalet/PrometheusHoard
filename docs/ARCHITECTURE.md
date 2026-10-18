@@ -2,6 +2,15 @@
 
 Restart handoffs keep a stop generation through reload preflight and atomic start registration: a later accepted unload invalidates the older reload, including when that unload has already completed. Superseded restart work does not overwrite the newer stop's progress or final state.
 
+Structural recovery: recovery.py owns reported symptoms through the existing Jobs lifecycle.
+deploy_report_issue validates URL/model against a managed recipe from disk/state before network,
+coordinates model:principal and a Hub lease as prometheus, confirms two structural failures, waits
+for fresh idle metrics and calls Recipes.restart with a final before_stop guard. Postcanaries alone
+determine recovered/unverified. recovery.json preserves deduplication, cooldown and interrupted state.
+It creates no generic polling monitor. The literal manifest oracle does not execute or verify the
+generated algorithm, and the canaries are not discriminatively validated on the recorded bad state.
+See [recovery scope and limits](recovery.md).
+
 ```
 browser / MCP bridge / Faustus
         │  HTTP (127.0.0.1:5205)

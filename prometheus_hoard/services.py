@@ -19,6 +19,7 @@ from .jobs import Jobs
 from .models import Models
 from .power import Power
 from .recipes import Recipes
+from .recovery import Recovery
 from .serving import Serving
 from .speedcard import SpeedCards
 from .transport import run_script
@@ -61,6 +62,12 @@ class Services:
         self.power = Power(self.cluster, self.recipes, config.data_dir / "macs.json", on_event=self.emit,
                            **({"wol": lambda mac, b: self.world.wol.append(mac)} if self.world is not None else {}))
         self.serving = Serving(self.recipes.endpoints, config.serving_path, **({"getter": self.world.http_text} if self.world is not None else {}))
+        recovery_kwargs = {}
+        if self.world is not None:
+            from contextlib import nullcontext
+            recovery_kwargs = {"generate": lambda *args: {"error": "demo: no live canary requests"},
+                               "coordinate": lambda recipe: nullcontext(lambda: None)}
+        self.recovery = Recovery(self.recipes, self.jobs, self.serving, config.data_dir / "recovery.json", **recovery_kwargs)
         extra = {}
         if self.world is not None:
             extra = {"psutil_mod": self.world.psutil, "resolve": self.world.resolve, "route": lambda host: self.world.pc_address}
@@ -96,6 +103,7 @@ class Services:
 
     def stop(self) -> None:
         self._stop.set()
+        self.recovery.close()
         self.xid.stop()
         self.clients.stop()
         self.serving.stop()
