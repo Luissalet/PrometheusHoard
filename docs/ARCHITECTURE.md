@@ -1,5 +1,7 @@
 # Architecture
 
+Restart handoffs keep a stop generation through reload preflight and atomic start registration: a later accepted unload invalidates the older reload, including when that unload has already completed. Superseded restart work does not overwrite the newer stop's progress or final state.
+
 ```
 browser / MCP bridge / Faustus
         │  HTTP (127.0.0.1:5205)

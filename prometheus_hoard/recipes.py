@@ -78,6 +78,7 @@ class Recipes:
         self._bg = ThreadPoolExecutor(max_workers=3, thread_name_prefix="health-bg")   # health.sh over SSH, off the panels' path
         self._stopping: set[str] = set()
         self._restarting: set[str] = set()
+        self._stop_epochs: dict[str, int] = {}  # a later stop invalidates an older restart's pending reload
         self.cancel_wait_s = 120.0   # how long a stop waits for a start to leave its current step
         self._cancel: set[str] = set()   # checks + registration of a start are atomic with respect to other starts
         self._health: dict[str, dict[str, Any]] = {}
@@ -346,9 +347,12 @@ class Recipes:
         with self._ops:
             return self._start_locked(r, stop_conflicts=stop_conflicts, wait=wait)
 
-    def _start_locked(self, r: dict[str, Any], *, stop_conflicts: bool, wait: bool) -> dict[str, Any]:
+    def _start_locked(self, r: dict[str, Any], *, stop_conflicts: bool, wait: bool,
+                      expected_stop_epoch: Optional[int] = None) -> dict[str, Any]:
         name = r["name"]
         with self._lock:
+            if expected_stop_epoch is not None and self._stop_epochs.get(name) != expected_stop_epoch:
+                raise SparkError("cancelled", f"{r['title']}: restart superseded by a later stop.")
             if name in self._stopping:
                 raise SparkError("busy", f"{r['title']} is being stopped; load it again when the stop ends.")
             if name in self._threads and self._threads[name].is_alive():
@@ -385,6 +389,8 @@ class Recipes:
                                  hint="Free memory (unload another model) or repeat with stop_conflicts=true to try anyway.")
         thread = threading.Thread(target=self._start_worker, args=(r, conflicts), name=f"start-{name}", daemon=True)
         with self._lock:   # checks and registration are one step: a stop that began meanwhile wins
+            if expected_stop_epoch is not None and self._stop_epochs.get(name) != expected_stop_epoch:
+                raise SparkError("cancelled", f"{r['title']}: restart superseded by a later stop.")
             current = self._threads.get(name)
             if name in self._stopping or (current is not None and current.is_alive()):
                 raise SparkError("busy", f"{r['title']} is being stopped or started; try again when it ends.")
@@ -392,7 +398,7 @@ class Recipes:
             self._threads[name] = thread
             self._set(name, state="starting", nodes=r["nodes"], started=time.time(), ready_at=None, step="copy", message="Copiando la receta",
                       external=False, jobs=[])
-        thread.start()
+            thread.start()  # stop must see a live worker when it observes the registered start
         if wait:
             self._ops.release()   # a waiting caller must not block the other recipes' starts meanwhile
             try:
@@ -524,6 +530,8 @@ class Recipes:
                 raise SparkError("busy", f"{r['title']} is already being stopped.")
             if restart:
                 self._restarting.add(name)
+            stop_epoch = self._stop_epochs.get(name, 0) + 1
+            self._stop_epochs[name] = stop_epoch
             self._stopping.add(name)
             starting = current if current is not None and current.is_alive() else None
             if starting is not None:
@@ -557,11 +565,13 @@ class Recipes:
                             self._stopping.discard(name)
                             self._threads.pop(name, None)
                             handed_off = True
-                        self._start_locked(r, stop_conflicts=False, wait=False)
+                        self._start_locked(r, stop_conflicts=False, wait=False, expected_stop_epoch=stop_epoch)
                         starting = self._threads.get(name)
                     if starting is not None:
                         starting.join()
             except Exception as exc:  # noqa: BLE001
+                if isinstance(exc, SparkError) and exc.code == "cancelled" and self._stop_epochs.get(name) != stop_epoch:
+                    return  # the newer stop owns state; an old restart must not overwrite its result
                 log.exception("stop %s", name)
                 self._set(name, state="failed", step="", message=str(exc))
             finally:
