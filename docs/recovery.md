@@ -21,6 +21,17 @@ Recipes.restart utiliza el lifecycle existente. Su guard opcional before_stop co
 reservar la operación y esperar starts previos, antes de cambiar a stopping; si rechaza, conserva
 la ejecución anterior. No se reescribe la receta ni se descargan pesos o modifican datos.
 
+Una vez lanzado el lifecycle, el supervisor lo sigue hasta un estado estable aunque se cancele
+el trabajo, se cierre la app o falle una renovación. No libera voluntariamente el contexto de
+coordinación mientras su worker sigue operando. Un error de renovación se refleja como
+coordination_confirmed=false; no se presume que un lock o lease caducado siga vigente.
+El callback before_start se ejecuta tras las comprobaciones previas de carga y antes de registrar
+el worker de arranque: exige coordinación fresca, la misma receta/boot/archivos y ausencia de
+cancelación. Si falla después de descargar, no carga y el lifecycle termina failed. Si la carga
+ya había empezado, la cancelación espera su final antes de soltar el contexto; no abandona ranks
+a mitad del lifecycle. Un fallo de coordinación en el postcheck deja unverified, sin volver a
+confirmar ni iniciar otra recarga.
+
 Después se comprueban hashes y ambos canarios. Sólo dos PASS producen recovered; los demás casos
 quedan unverified/failed. Un trabajo activo se deduplica. Un cooldown por receta cubre también
 el cambio de boot y no presenta recovered histórico como verificación de un síntoma nuevo.

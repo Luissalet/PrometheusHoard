@@ -9,6 +9,10 @@ for fresh idle metrics and calls Recipes.restart with a final before_stop guard.
 determine recovered/unverified. recovery.json preserves deduplication, cooldown and interrupted state.
 It creates no generic polling monitor. The literal manifest oracle does not execute or verify the
 generated algorithm, and the canaries are not discriminatively validated on the recorded bad state.
+An active restart remains supervised through cancellation and renewal failures until its lifecycle
+is stable. A second callback confirms coordination and unchanged ownership/files immediately before
+registering its start worker, after preflight. Missing renewal is exposed, never treated as a still-held
+lease; postcheck coordination failures end unverified and cannot trigger another restart.
 See [recovery scope and limits](recovery.md).
 
 ```

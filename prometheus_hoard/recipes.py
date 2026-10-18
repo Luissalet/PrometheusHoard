@@ -348,7 +348,8 @@ class Recipes:
             return self._start_locked(r, stop_conflicts=stop_conflicts, wait=wait)
 
     def _start_locked(self, r: dict[str, Any], *, stop_conflicts: bool, wait: bool,
-                      expected_stop_epoch: Optional[int] = None) -> dict[str, Any]:
+                      expected_stop_epoch: Optional[int] = None,
+                      before_start: Optional[Callable[[], None]] = None) -> dict[str, Any]:
         name = r["name"]
         with self._lock:
             if expected_stop_epoch is not None and self._stop_epochs.get(name) != expected_stop_epoch:
@@ -387,6 +388,10 @@ class Recipes:
             if short and not stop_conflicts:
                 raise SparkError("conflict", f"{r['title']} needs about {r['memory_gb']} GB per Spark; not enough free memory on {', '.join(short)}.",
                                  hint="Free memory (unload another model) or repeat with stop_conflicts=true to try anyway.")
+        # Preflight can involve several remote probes. Confirm recovery coordination
+        # after those probes, immediately before registering the actual start worker.
+        if before_start is not None:
+            before_start()
         thread = threading.Thread(target=self._start_worker, args=(r, conflicts), name=f"start-{name}", daemon=True)
         with self._lock:   # checks and registration are one step: a stop that began meanwhile wins
             if expected_stop_epoch is not None and self._stop_epochs.get(name) != expected_stop_epoch:
@@ -517,12 +522,14 @@ class Recipes:
         return self._stop(name, wait=wait, restart=False)
 
     def restart(self, name: str, *, wait: bool = False,
-                before_stop: Optional[Callable[[], None]] = None) -> dict[str, Any]:
+                before_stop: Optional[Callable[[], None]] = None,
+                before_start: Optional[Callable[[], None]] = None) -> dict[str, Any]:
         """Reload the same recipe after every stop step has completed successfully."""
-        return self._stop(name, wait=wait, restart=True, before_stop=before_stop)
+        return self._stop(name, wait=wait, restart=True, before_stop=before_stop, before_start=before_start)
 
     def _stop(self, name: str, *, wait: bool, restart: bool,
-              before_stop: Optional[Callable[[], None]] = None) -> dict[str, Any]:
+              before_stop: Optional[Callable[[], None]] = None,
+              before_start: Optional[Callable[[], None]] = None) -> dict[str, Any]:
         r = self.load(name)
         with self._lock:
             current = self._threads.get(name)
@@ -571,7 +578,8 @@ class Recipes:
                             self._stopping.discard(name)
                             self._threads.pop(name, None)
                             handed_off = True
-                        self._start_locked(r, stop_conflicts=False, wait=False, expected_stop_epoch=stop_epoch)
+                        self._start_locked(r, stop_conflicts=False, wait=False,
+                                           expected_stop_epoch=stop_epoch, before_start=before_start)
                         starting = self._threads.get(name)
                     if starting is not None:
                         starting.join()

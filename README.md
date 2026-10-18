@@ -73,10 +73,12 @@ python scripts/make_icon.py --family ..\Icons
 
 deploy_report_issue reports typed degeneration of a running managed recipe and returns a background
 job promptly; deploy_recovery_status reads it. Two complete structural canary failures are required
-before the existing recipe lifecycle can reload. The worker holds the principal-model lock and a Hub
+before the existing recipe lifecycle can reload. The worker acquires the principal-model lock and a Hub
 lease as Prometheus, waits for fresh idle metrics, revalidates ownership/configuration, and checks both
 canaries after reload. Length, fences and isolated logic mistakes never trigger it. A literal manifest
 oracle does not verify the generated algorithm; recovered describes only these structural postchecks.
 Canaries have not been validated against the recorded bad engine state. See [scope and limits](docs/recovery.md).
+Renewal failures remain visible; supervision continues until the lifecycle is stable, with a fresh
+coordination check before its load worker starts. Cancellation cannot abandon an active stop/start.
 
 MIT licence.
