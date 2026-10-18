@@ -77,6 +77,7 @@ class Recipes:
         self._owned_inflight: set[str] = set()
         self._bg = ThreadPoolExecutor(max_workers=3, thread_name_prefix="health-bg")   # health.sh over SSH, off the panels' path
         self._stopping: set[str] = set()
+        self._restarting: set[str] = set()
         self.cancel_wait_s = 120.0   # how long a stop waits for a start to leave its current step
         self._cancel: set[str] = set()   # checks + registration of a start are atomic with respect to other starts
         self._health: dict[str, dict[str, Any]] = {}
@@ -302,6 +303,7 @@ class Recipes:
             base = ""
         return {"recipe": r["name"], "title": r["title"], "nodes": r["nodes"], "head": r["head"], "state": st.get("state", "stopped"),
                 "external": bool(st.get("external")), "message": st.get("message", ""), "step": st.get("step", ""),
+                "operation": st.get("operation", ""), "current_node": st.get("current_node", ""),
                 "started": st.get("started"), "ready_at": st.get("ready_at"), "jobs": st.get("jobs", []),
                 "base_url": base + r["api_path"] if base else "", "port": r["port"], "served_model_name": r["served_model_name"],
                 "model": r["model"], "max_model_len": r["max_model_len"], "engine": r["engine"], "memory_gb": r["memory_gb"],
@@ -506,11 +508,22 @@ class Recipes:
             self._set(name, state="failed", step="", message=str(exc))
 
     def stop(self, name: str, *, wait: bool = True) -> dict[str, Any]:
+        return self._stop(name, wait=wait, restart=False)
+
+    def restart(self, name: str, *, wait: bool = False) -> dict[str, Any]:
+        """Reload the same recipe after every stop step has completed successfully."""
+        return self._stop(name, wait=wait, restart=True)
+
+    def _stop(self, name: str, *, wait: bool, restart: bool) -> dict[str, Any]:
         r = self.load(name)
         with self._lock:
             current = self._threads.get(name)
+            if restart and name in self._restarting:
+                raise SparkError("busy", f"{r['title']} is already being restarted.")
             if name in self._stopping or (current is not None and current.is_alive() and current.name.startswith("stop-")):
                 raise SparkError("busy", f"{r['title']} is already being stopped.")
+            if restart:
+                self._restarting.add(name)
             self._stopping.add(name)
             starting = current if current is not None and current.is_alive() else None
             if starting is not None:
@@ -522,28 +535,49 @@ class Recipes:
                     # the start is still inside a step: do not run stop.sh under it nor call it stopped; the cancel stays set,
                     # so the start leaves at its next check, and the stop can be repeated then.
                     raise SparkError("busy", f"{r['title']} is still finishing a start step; it will cancel itself, stop again in a moment.")
-            self._set(name, state="stopping", step="stop", message="Parando")
+            self._set(name, state="stopping", step="stop", operation="restart" if restart else "stop", current_node="",
+                      message="Reiniciando: descargando el modelo" if restart else "Parando")
         except BaseException:
             with self._lock:
                 self._stopping.discard(name)
+                if restart:
+                    self._restarting.discard(name)
             raise
         self._owned_cache.pop(name, None)
 
         def work() -> None:
+            handed_off = False
             try:
                 stop_all()
+                if restart and self.state.get(name, {}).get("state") == "stopped":
+                    for node_id in r["nodes"]:
+                        self.cluster.probe(self.cluster.node(node_id))
+                    with self._ops:
+                        with self._lock:
+                            self._stopping.discard(name)
+                            self._threads.pop(name, None)
+                            handed_off = True
+                        self._start_locked(r, stop_conflicts=False, wait=False)
+                        starting = self._threads.get(name)
+                    if starting is not None:
+                        starting.join()
             except Exception as exc:  # noqa: BLE001
                 log.exception("stop %s", name)
                 self._set(name, state="failed", step="", message=str(exc))
             finally:
                 with self._lock:
-                    self._stopping.discard(name)
+                    if restart:
+                        self._restarting.discard(name)
+                    if not handed_off:
+                        self._stopping.discard(name)
 
         def stop_all() -> None:
             errors = []
             for node_id in reversed(r["start_order"]):
                 try:
                     node = self.cluster.node(node_id)
+                    self._set(name, step="stop", current_node=node_id,
+                              message=f"{'Reiniciando: descargando' if restart else 'Parando'} en {node.conf['name']}")
                     remote = self._upload(r, node)
                     j = self._run_step(r, node, r["scripts"]["stop"], remote, r["nodes"].index(node_id), timeout=300)
                     if j["state"] != "done":
@@ -557,7 +591,10 @@ class Recipes:
                 self._set(name, state="failed", step="", message="stop.sh falló en " + "; ".join(errors) + ". La cabeza ya no responde, pero puede quedar algo en marcha.",
                           ready_at=None)
             else:
-                self._set(name, state="stopped", step="", message="Descargado", external=False, ready_at=None)
+                with self._lock:
+                    if not restart:
+                        self._stopping.discard(name)
+                    self._set(name, state="stopped", step="", message="Descargado", external=False, ready_at=None)
 
         t = threading.Thread(target=work, name=f"stop-{name}", daemon=True)
         with self._lock:
@@ -639,7 +676,7 @@ class Recipes:
         deployments = deployments if deployments is not None else self.deployments(check=False)
         taken = set()
         for d in deployments:
-            if d["state"] in ("running", "starting"):
+            if d["state"] in ("running", "starting", "stopping"):
                 taken.add((d["head"], d["port"]))
                 for n in d["nodes"]:
                     taken.add((n, d["port"]))

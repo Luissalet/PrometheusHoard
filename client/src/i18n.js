@@ -21,6 +21,9 @@ const D = {
   demo_short: ["Demo", "Demo"],
   badge_n: ["{n} en curso", "{n} in progress"],
   loading: ["Cargando…", "Loading…"],
+  restart_model: ["Reiniciar modelo", "Restart model"],
+  restarting_model: ["Reiniciando {title}…", "Restarting {title}…"],
+  restart_unloading_node: ["Reiniciando: descargando en {node}", "Restarting: unloading on {node}"],
   sparks_online_of: ["{n} de {total} Sparks en línea", "{n} of {total} Sparks online"],
 
   // speed card and capacity card

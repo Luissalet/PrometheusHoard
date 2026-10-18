@@ -195,6 +195,10 @@ class DeployStartArgs(RecipeArg):
     wait: bool = Field(False, description="Wait until the server answers (can take many minutes).")
 
 
+class DeployRestartArgs(RecipeArg):
+    wait: bool = Field(False, description="Wait for unloading and reloading; otherwise follow deployments for progress.")
+
+
 class LogsArgs(RecipeArg):
     node: str = Field("", max_length=60, description="Empty = the head Spark of the recipe.")
     lines: int = Field(200, ge=10, le=5000)
@@ -389,6 +393,9 @@ TOOLS: list[Tool] = [
          lambda s, a: s.recipes.start(a.recipe, stop_conflicts=a.stop_conflicts, wait=a.wait), 3600.0),
     Tool("deploy_stop", _d("Unload a model: stop the servers of a recipe. Descargar modelo de memoria.",
                            synonyms="parar, apagar servidor, liberar memoria"), RecipeArg, W, lambda s, a: s.recipes.stop(a.recipe, wait=True), 900.0),
+    Tool("deploy_restart", _d("Reload the same model recipe after stopping all its nodes. Reiniciar modelo.",
+                              synonyms="refrescar modelo, recargar, recuperar servidor"), DeployRestartArgs, W,
+         lambda s, a: s.recipes.restart(a.recipe, wait=a.wait), 3600.0),
     Tool("deploy_logs", _d("Logs of a recipe's server and its start steps on a Spark. Registros del servidor.", synonyms="docker logs, errores"),
          LogsArgs, R, lambda s, a: s.recipes.logs(a.recipe, a.node, a.lines)),
     Tool("endpoints", _d("OpenAI-compatible endpoints served by the Sparks right now. URLs para Faustus.",
