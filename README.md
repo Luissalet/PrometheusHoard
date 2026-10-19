@@ -23,6 +23,14 @@ Runs a small cluster of NVIDIA DGX Spark computers from a Windows PC. Each Spark
 
 ## Recipes
 
+Model downloads use one file worker and streamed HTTP, with Xet reconstruction
+disabled. This reduces transfer buffers while a model is loaded; it is not a
+global memory ceiling. The native MCP/API path downloaded 5.08 GB with verified
+SHA256 hashes and a 90 MiB downloader peak on 19 October 2026. Completed files
+and the destination remain reusable; byte-level continuation of an interrupted
+shard depends on the installed Hugging Face client. Model context, concurrent
+sequence capacity and the recipe's existing memory floor are unchanged.
+
 Measured recipes show input tokens, estimated generation speed, time to the first token and retrieval results. Expand “Show all measurements” for every recorded value, including nested baseline tests, retrieval positions and cache memory. These values come from the recipe's `measured` data; the panel does not run a benchmark or certify its results.
 
 A recipe is a folder with `recipe.json` and the scripts that start and stop a server (`start.sh`, `stop.sh`, optional `health.sh` and `logs.sh`). The recipes folder is a setting (default: `Sparks cluster/recipes` next to this repository). Loading copies the folder to each Spark it uses, runs `start.sh` on each one (the head first unless `start_order` says otherwise) as a detached job, and waits until the head answers on its port. Scripts get `PROM_NODE`, `PROM_ROLE`, `PROM_RANK`, `PROM_HEAD`, `PROM_HEAD_IP` (the head's address on the CX7 cable shared with this Spark), `PROM_PORT`, `PROM_MODEL`, `PROM_SERVED_NAME`, `PROM_MAX_MODEL_LEN`, `PROM_FABRIC_<NODE>` and `SPARK_NODE`. See `prometheus_hoard/recipes.py` for every key. A recipe with `"coexist": true` is a small server that runs beside the main model on the same Sparks (an embedding, reranking or decision model): it is never a conflict for the other recipes and they are not one for it, only its `memory_gb` is checked against free memory. `"kind"` (`chat` by default, or `decision`, `embedding`, `rerank`) travels with its endpoint so clients only offer chat endpoints as chat models.
