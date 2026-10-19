@@ -57,7 +57,7 @@ def test_download_disables_xet_in_the_job_environment(download_setup, token):
     models, _, _, _ = download_setup
     models.secrets = lambda: {"HF_TOKEN": token}
     job = models.download("spark1", "demo/test-model")
-    expected = {"HF_HUB_DISABLE_XET": "1"}
+    expected = {"HF_HUB_ENABLE_HF_TRANSFER": "0", "HF_HUB_DISABLE_XET": "1"}
     if token:
         expected["HF_TOKEN"] = token
     assert job["env"] == expected

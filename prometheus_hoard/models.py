@@ -104,6 +104,7 @@ class Models:
         token = self.secrets().get("HF_TOKEN")
         if token:
             env["HF_TOKEN"] = token
+        env["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
         # Use HTTP streaming instead of Xet's adaptive transfer buffers.
         env["HF_HUB_DISABLE_XET"] = "1"
         job = self.jobs.start(node.id, cmd, kind="download", title=f"{repo} → {node.conf['name']}", watch=target, expected_bytes=expected,
