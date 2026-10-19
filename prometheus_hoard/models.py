@@ -93,7 +93,7 @@ class Models:
             expected = self.hf_size(repo, revision or "main")
         except Exception:  # noqa: BLE001 - the size only feeds the progress bar
             expected = None
-        args = [HF_BIN, "download", q(repo), "--local-dir", q(target)]
+        args = [HF_BIN, "download", q(repo), "--local-dir", q(target), "--max-workers", "1"]
         if revision:
             args += ["--revision", q(revision)]
         for pattern in include or []:
@@ -104,7 +104,8 @@ class Models:
         token = self.secrets().get("HF_TOKEN")
         if token:
             env["HF_TOKEN"] = token
-        env["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+        # Use HTTP streaming instead of Xet's adaptive transfer buffers.
+        env["HF_HUB_DISABLE_XET"] = "1"
         job = self.jobs.start(node.id, cmd, kind="download", title=f"{repo} → {node.conf['name']}", watch=target, expected_bytes=expected,
                               meta={"repo": repo, "target": target, "revision": revision or "main"}, env=env)
         self.invalidate(node.id)
