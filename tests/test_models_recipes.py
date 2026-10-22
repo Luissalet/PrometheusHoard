@@ -309,3 +309,26 @@ def test_a_coexisting_server_shares_the_sparks_of_the_main_model(call, services)
                           "scripts": {"start.sh": "echo a", "stop.sh": "echo b"}})
     assert call("deploy_start", {"recipe": "decider-b"}, status=409)["conflicts"] == ["decider"]
     call("deploy_stop", {"recipe": "decider"})
+
+
+def test_an_engine_behind_the_recipe_proxy_belongs_to_the_recipe(call, services, monkeypatch):
+    definition = {"nodes": ["spark2"], "port": 8031, "extra_ports": [8030, "8030", 8031], "served_model_name": "",
+                  "health_path": "/health"}
+    r = call("recipe_write", {"recipe": "proxied", "definition": definition, "scripts": {"start.sh": "echo a", "stop.sh": "echo b"}})
+    assert r["extra_ports"] == [8030]   # deduplicated, the main port left out
+    node = services.cluster.node("spark2")
+    node.metrics["servers"] = [{"engine": "sglang", "model": "/m", "port": 8030, "served_name": "engine", "max_len": 4096, "tp": None, "pid": 9}]
+    monkeypatch.setattr(services.recipes, "http", lambda url, timeout=2.0: (200, {"data": [{"id": "engine"}]}) if ":8030/" in url else (0, "refused"))
+    # Stopped, the engine left behind is still a server outside any recipe.
+    assert call("deploy_start", {"recipe": "glm53-tp3", "stop_conflicts": True}, status=409)["conflicts"] == ["spark2-8030"]
+    services.recipes._set("proxied", state="running", nodes=["spark2"])
+    assert not [e for e in call("endpoints")["endpoints"] if e["detected"]]
+    out = call("deploy_start", {"recipe": "glm53-tp3"}, status=409)
+    assert out["conflicts"] == ["proxied"] and "outside any recipe" not in out["error"]
+
+
+@pytest.mark.parametrize("bad", ["30000", [0], ["x"], [70000]])
+def test_extra_ports_are_checked(call, services, bad):
+    out = call("recipe_write", {"recipe": "badports", "definition": {"nodes": ["spark1"], "port": 8040, "extra_ports": bad},
+                                "scripts": {"start.sh": "echo a", "stop.sh": "echo b"}}, status=400)
+    assert "extra_ports" in out["error"]

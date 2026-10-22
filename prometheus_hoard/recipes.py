@@ -20,7 +20,11 @@ and the recipe ``env``.
 ``"coexist": true`` marks a small server that runs beside whatever else holds its Sparks (an embedding, reranking or decision model
 next to the main chat model): it neither blocks nor is blocked by the other recipes, only by another coexisting recipe on the same
 node and port, and its ``memory_gb`` is checked against the free memory as usual. ``"kind"`` says what the endpoint is for —
-``chat`` (the default), ``decision``, ``embedding``, ``rerank`` — so clients that pick a chat model leave the others alone."""
+``chat`` (the default), ``decision``, ``embedding``, ``rerank`` — so clients that pick a chat model leave the others alone.
+
+``"extra_ports": [30000]`` lists other ports the recipe's own processes open on its Sparks (the engine behind a proxy on ``port``):
+while the recipe is not stopped, a server found there belongs to it, so it is unloaded with the recipe instead of blocking
+other recipes as a server started by hand."""
 
 from __future__ import annotations
 
@@ -144,7 +148,27 @@ class Recipes:
             "measured": raw.get("measured") or {}, "scripts": {"start": start_s, "stop": stop_s, "health": health_s if health_s in files else ""},
             "context_verified": raw.get("context_verified"), "validation_status": raw.get("validation_status", ""),
             "coexist": bool(raw.get("coexist")), "kind": (str(raw.get("kind") or "chat").strip().lower() or "chat"),
+            "extra_ports": self._ports(name, raw.get("extra_ports"), port),
         }
+
+    @staticmethod
+    def _ports(name: str, value: Any, port: int) -> list[int]:
+        """Other ports the recipe's own processes open on its Sparks (an engine behind a proxy, a metrics side port)."""
+        if value in (None, "", []):
+            return []
+        if not isinstance(value, list):
+            raise SparkError("invalid", f"Recipe {name}: «extra_ports» must be a list of port numbers.")
+        out: list[int] = []
+        for v in value:
+            try:
+                p = int(v)
+            except (TypeError, ValueError):
+                raise SparkError("invalid", f"Recipe {name}: {v!r} in «extra_ports» is not a port number.") from None
+            if not 0 < p < 65536:
+                raise SparkError("invalid", f"Recipe {name}: {p} in «extra_ports» is out of range.")
+            if p != port and p not in out:
+                out.append(p)
+        return out
 
     def list(self) -> list[dict[str, Any]]:
         out = []
@@ -309,7 +333,7 @@ class Recipes:
                 "base_url": base + r["api_path"] if base else "", "port": r["port"], "served_model_name": r["served_model_name"],
                 "model": r["model"], "max_model_len": r["max_model_len"], "engine": r["engine"], "memory_gb": r["memory_gb"],
                 "context_verified": r.get("context_verified"), "validation_status": r.get("validation_status", ""), "health": health, "served": [m["id"] for m in health.get("models", [])] if health else [], "tags": r["tags"],
-                "coexist": bool(r.get("coexist")), "kind": r.get("kind") or "chat"}
+                "coexist": bool(r.get("coexist")), "kind": r.get("kind") or "chat", "extra_ports": list(r.get("extra_ports") or [])}
 
     def get(self, name: str) -> dict[str, Any]:
         r = self.load(name)
@@ -704,6 +728,10 @@ class Recipes:
                 taken.add((d["head"], d["port"]))
                 for n in d["nodes"]:
                     taken.add((n, d["port"]))
+            if d["state"] != "stopped":   # the recipe's own side servers (an engine behind its proxy) are not foreign
+                for p in d.get("extra_ports") or []:
+                    for n in d["nodes"]:
+                        taken.add((n, p))
         found = []
         claimed = {n for d in deployments if d["state"] != "stopped" and not d.get("coexist") for n in d["nodes"]}
         candidates = []
