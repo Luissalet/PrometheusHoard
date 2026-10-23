@@ -21,6 +21,12 @@ Maneja desde el PC con Windows un clúster pequeño de NVIDIA DGX Spark. Cada Sp
 
 ![Modelos](docs/screens/modelos.png)
 
+## Comparar mediciones guardadas
+
+En Sirviendo, **Comparar mediciones** abre los últimos 20 registros de velocidad de ese servidor. Elige base, otra medición y concurrencia: cada fila indica sus flujos y muestra velocidad agregada/por flujo, primer token p50/p95, peticiones fallidas o medidas, con cambio absoluto y porcentual. **Intercambiar** invierte la comparación. Un dato ausente sigue sin dato; con base cero hay cambio absoluto pero no porcentaje.
+
+Modelo, límite de salida, rondas, calentamiento, fin de secuencia y origen del recuento de tokens se muestran a ambos lados, señalando diferencias. Solo lee registros; no lanza un benchmark. Compara resultados, no causas: otros clientes o condiciones no registradas pueden haber cambiado.
+
 ## Recetas
 
 Las recetas medidas muestran los tokens de entrada, la velocidad de generación estimada, el tiempo hasta el primer token y el resultado de recuperación. «Ver todas las mediciones» despliega todos los valores registrados, incluidas las pruebas de referencia anidadas, las posiciones de recuperación y la memoria de caché. Los datos proceden de `measured` en la receta; el panel no ejecuta pruebas ni certifica sus resultados.

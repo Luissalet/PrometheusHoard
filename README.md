@@ -21,6 +21,12 @@ Runs a small cluster of NVIDIA DGX Spark computers from a Windows PC. Each Spark
 
 ![Modelos](docs/screens/modelos.png)
 
+## Compare saved measurements
+
+In Sirviendo, **Comparar mediciones** opens the latest 20 saved speed cards for that server. Choose a baseline, another measurement and a concurrency level: each row identifies its stream count and shows aggregate/per-stream throughput, first-token p50/p95, failed requests or measured requests, with absolute and percentage change. **Intercambiar** reverses the comparison. Missing readings remain unknown; a zero baseline has an absolute change but no percentage.
+
+Model, output limit, rounds, warm-up, end-of-sequence setting and token-count source are shown side by side, with differences marked. This reads existing cards without starting a benchmark. It compares recorded results, not causes: other server clients and unrecorded conditions may have changed.
+
 ## Recipes
 
 Model downloads use one file worker and streamed HTTP, with Xet reconstruction
