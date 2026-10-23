@@ -5,6 +5,7 @@ import { bytes, ctx, elapsed, num, pct, rel } from "../format.js";
 import { Bar, Busy, Chip, CopyButton, Empty, ErrorBox, Field, Icon, ICONS, Modal, Section, Spinner, Tabs, useBusy, useLoad } from "../components/ui.jsx";
 import { useContextProvider, usePoll } from "../components/hooks.js";
 import RecipeMeasurements from "../components/RecipeMeasurements.jsx";
+import JobDetail from "../components/JobDetail.jsx";
 
 const ACTIVE = new Set(["running", "starting", "stopping", "failed", "unknown"]);
 const DEP_TONE = { running: "chip-ok", starting: "chip-amber", stopping: "chip-amber", failed: "chip-danger", unknown: "chip-amber", stopped: "" };
@@ -483,6 +484,7 @@ function Jobs({ jobs }) {
   const [busy, run] = useBusy();
   const [filter, setFilter] = useState("all");
   const [more, setMore] = useState(false);
+  const [selected, setSelected] = useState(null);
   const list = (jobs.data?.jobs || []).filter((j) => filter === "all" || (filter === "active" ? j.state === "running" : j.state !== "running"));
   const cancel = (j) => run(j.id, async () => {
     await api.call("job_cancel", { job: j.id });
@@ -508,6 +510,7 @@ function Jobs({ jobs }) {
                     <div className="help">{t(`jobkind_${j.kind}`)} · {j.node} · {rel(j.created, lang)} · {elapsed(j.elapsed_s)}</div>
                   </div>
                   <Chip className={JOB_TONE[j.state]}>{j.state === "running" && <span className="spinner spinner-xs" />}{t(`job_${j.state}`)}</Chip>
+                  <button type="button" className="btn btn-sm" aria-label={t("job_detail_for", { title: j.title })} aria-expanded={selected === j.id} aria-controls={`job-detail-${j.id}`} onClick={() => setSelected(selected === j.id ? null : j.id)}>{t("job_detail_open")}</button>
                   {j.state === "running" && <Busy className="btn btn-sm" busy={busy[j.id]} onClick={() => cancel(j)}><Icon d={ICONS.stop} size={12} />{t("cancel")}</Busy>}
                 </div>
                 {j.state === "running" && (
@@ -525,6 +528,7 @@ function Jobs({ jobs }) {
                     <pre className="pre mt-1">{j.log}</pre>
                   </details>
                 )}
+                {selected === j.id && <JobDetail key={j.id} jobId={j.id} onClose={() => setSelected(null)} />}
               </div>
             );
           })}

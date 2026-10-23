@@ -1,5 +1,11 @@
 # Architecture
 
+Modelos/Jobs exposes `job_get` through a manually refreshed, selected-job detail.
+It uses the existing default 40-line Jobs.view tail, while jobs_list keeps its
+six-line summary. The UI does not infer execution start from creation, and
+preserves missing values and zero exit codes. No backend, polling, job lifecycle
+or MCP contract changes are required by this view.
+
 Restart handoffs keep a stop generation through reload preflight and atomic start registration: a later accepted unload invalidates the older reload, including when that unload has already completed. Superseded restart work does not overwrite the newer stop's progress or final state.
 
 Structural recovery: recovery.py owns reported symptoms through the existing Jobs lifecycle.
