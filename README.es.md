@@ -1,5 +1,13 @@
 # Prometheus's Hoard
 
+En **Modelos → Trabajos**, **Ver detalle** consulta el trabajo seleccionado con
+`job_get`, sin iniciar, reintentar ni cancelar su ejecución. Muestra identificador,
+estado, código de salida, fechas registradas de creación y finalización, progreso
+y bytes cuando constan, y las últimas hasta 40 líneas disponibles del registro.
+La creación no indica inicio de ejecución; los datos ausentes se señalan.
+**Actualizar** vuelve a leer ese detalle. Se conservan el resumen de seis líneas
+de la lista y sus controles de cancelación.
+
 Maneja desde el PC con Windows un clúster pequeño de NVIDIA DGX Spark. Cada Spark es una unidad en un explorador de archivos; su GPU, CPU, memoria unificada, consumo, discos y red se ven en directo; los modelos de sus discos se listan y se descargan; los modelos se cargan y se descargan de memoria con recetas; y cada Spark se puede bloquear, suspender, apagar, reiniciar o encender desde la misma ventana. Es de la familia Hoard: funciona sola, desde Hoard Hub, desde Faustus y desde cualquier cliente MCP.
 
 ![Equipo](docs/screens/equipo.png)
