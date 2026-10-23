@@ -1,5 +1,14 @@
 # Architecture
 
+Equipo's manual CX7 pair panel calls the existing `fabric_status` handler through
+the normal UI API. It renders each native directional destination IP and cached
+interface facts without recomputing routes or starting probes/workers. Reads
+are discarded on closing, configuration-name/ID change or copilot refresh;
+unmounted/older responses cannot replace a later reading. Null addresses are
+unknown in that reading, not evidence of a failed link. The engine uses only
+active fabric IPv4 /24 interfaces and returns the first matching destination.
+No metric timestamp is returned; the UI labels its local query time separately.
+
 Modelos/Jobs exposes `job_get` through a manually refreshed, selected-job detail.
 It uses the existing default 40-line Jobs.view tail, while jobs_list keeps its
 six-line summary. The UI does not infer execution start from creation, and

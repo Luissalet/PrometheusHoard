@@ -585,3 +585,24 @@ button.xp-crumb:hover { background: var(--hover); }
 .xid-when { margin-left: auto; }
 .xid-line { display: block; margin-top: 3px; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .xid-chip { text-decoration: none; }
+/* Manual cached CX7 pair reading, separate from per-node live charts. */
+.fabric-panel { min-width: 0; padding-block: 20px; border-block: 1px solid var(--line); }
+.fabric-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.fabric-body { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding-top: 16px; min-width: 0; }
+.fabric-body > p { max-width: 75ch; }
+.fabric-snapshot { width: 100%; min-width: 0; }
+.fabric-snapshot p, .fabric-snapshot code, .fabric-snapshot dt, .fabric-snapshot dd, .fabric-snapshot h3 { overflow-wrap: anywhere; }
+.fabric-pairs { list-style: none; padding: 0; margin: 16px 0; }
+.fabric-pairs > li { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.fabric-pairs h3, .fabric-node h3 { font-weight: 600; }
+.fabric-directions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; }
+.fabric-direction { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.fabric-address { display: flex; align-items: center; gap: 10px; }
+.fabric-address code { min-width: 0; font-variant-numeric: tabular-nums; }
+.fabric-address button { flex-shrink: 0; }
+.fabric-interfaces > summary { cursor: pointer; min-height: 36px; padding-block: 8px; }
+.fabric-node { margin-top: 16px; }
+.fabric-node dl > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.fabric-node dd { display: flex; flex-wrap: wrap; gap: 6px 20px; min-width: 0; }
+.fabric-node dd .mono { flex-basis: 100%; }
+@media (max-width: 600px) { .fabric-directions { grid-template-columns: minmax(0, 1fr); } .fabric-node dl > div { grid-template-columns: minmax(0, 1fr); gap: 6px; } }
