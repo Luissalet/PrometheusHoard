@@ -6,6 +6,13 @@ Runs a small cluster of NVIDIA DGX Spark computers from a Windows PC. Each Spark
 
 ## What it does
 
+In **Equipo → Red CX7 · Pares de Sparks**, read and copy each pair's detected
+destination addresses with the existing `fabric_status` tool. Interface details
+show reported link state/speed, MTU and IPv4 addresses. This is a manual read of
+cached metrics, not a probe or connectivity/throughput test. The native lookup
+uses the first matching IPv4 /24 address on active CX7 interfaces; missing values
+do not prove a failed cable. The local query time is not a metrics timestamp.
+
 In **Models → Jobs**, **View details** reads the selected job through the existing
 `job_get` tool. It shows its identifier, state, exit code, recorded creation and
 finish dates, progress/bytes when available, and the last up to 40 log lines.

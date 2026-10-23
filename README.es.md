@@ -1,5 +1,12 @@
 # Prometheus's Hoard
 
+En **Equipo → Red CX7 · Pares de Sparks**, consulta y copia las direcciones
+destino detectadas de cada par mediante `fabric_status`. El detalle muestra el
+estado y velocidad declarados, MTU e IPv4 de las interfaces. Lee métricas en caché
+manualmente: no sondea ni prueba conexión o rendimiento. El motor devuelve la
+primera dirección IPv4 /24 coincidente entre interfaces CX7 activas; un valor
+ausente no demuestra un cable averiado. La hora de consulta no fecha las métricas.
+
 En **Modelos → Trabajos**, **Ver detalle** consulta el trabajo seleccionado con
 `job_get`, sin iniciar, reintentar ni cancelar su ejecución. Muestra identificador,
 estado, código de salida, fechas registradas de creación y finalización, progreso

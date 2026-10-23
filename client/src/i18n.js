@@ -2,6 +2,23 @@
 // Each entry is [español, English]; `{name}` placeholders are filled by t(key, { name }). A key with an `_one` twin uses it when n is 1.
 
 const D = {
+  fabric_title: ["Red CX7 · Pares de Sparks", "CX7 network · Spark pairs"],
+  fabric_open: ["Ver pares", "View pairs"],
+  fabric_query: ["Consultar direcciones", "Read addresses"],
+  fabric_refresh: ["Actualizar lectura", "Refresh reading"],
+  fabric_cached: ["Direcciones detectadas en las métricas conservadas del clúster: sólo IPv4 /24 de interfaces CX7 activas, una dirección por sentido. Esta lectura no comprueba cables, conexión, RDMA ni rendimiento real y no inicia un sondeo.", "Addresses detected in cached cluster metrics: only IPv4 /24 on active CX7 interfaces, one address per direction. This reading does not verify cables, connectivity, RDMA or actual throughput and does not start a probe."],
+  fabric_before_query: ["Pulsa Consultar direcciones para leer los pares del clúster.", "Choose Read addresses to read the cluster pairs."],
+  fabric_direction: ["Dirección de {to} desde {from}", "Address of {to} from {from}"],
+  fabric_copy: ["Copiar dirección de {to} desde {from}", "Copy address of {to} from {from}"],
+  fabric_no_address: ["Sin dirección detectada en esta lectura", "No address detected in this reading"],
+  fabric_queried: ["Consulta local: {at}. No es la hora de las métricas; el motor no proporciona esa fecha.", "Local query: {at}. This is not the metrics timestamp; the engine does not provide that date."],
+  fabric_interfaces: ["Ver interfaces de esta lectura", "View interfaces in this reading"],
+  fabric_no_pairs: ["Sin pares de Sparks devueltos en esta lectura.", "No Spark pairs returned in this reading."],
+  fabric_no_reading: ["Sin lectura de interfaces para esta Spark.", "No interface reading for this Spark."],
+  fabric_no_interfaces: ["La lectura no contiene interfaces CX7.", "This reading contains no CX7 interfaces."],
+  fabric_no_ipv4: ["Sin direcciones IPv4 declaradas", "No reported IPv4 addresses"],
+  fabric_reported_speed: ["Velocidad declarada", "Reported link speed"],
+  fabric_unknown: ["No disponible", "Unavailable"],
   // shell
   nav_cluster: ["Equipo", "Cluster"],
   nav_serving: ["Sirviendo", "Serving"],

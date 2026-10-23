@@ -6,6 +6,7 @@ import { CoreBars, Sparkline, niceMax } from "../components/charts.jsx";
 import { useHistories } from "../components/hooks.js";
 import { PowerButton, powerState } from "../components/power.jsx";
 import { columns, fabricOf, mainDisk, memFrac } from "../components/node.js";
+import FabricPairs from "../components/FabricPairs.jsx";
 
 const C = { gpu: "var(--hoard-accent)", cpu: "#5aa9e6", mem: "#b48ef0", net: "#e0a84a", net2: "#e07a5f" };
 
@@ -54,6 +55,8 @@ export default function Equipo() {
           <a className="btn-link text-[12px]" href="#/modelos">{t("see_models")}</a>
         </div>
       </section>
+
+      <FabricPairs nodes={nodes} />
 
       {!nodes.length ? (
         <Empty icon={ICONS.computer} title={t("no_sparks")} action={<a className="btn btn-primary" href="#/ajustes">{t("go_settings")}</a>}>{t("no_sparks_help")}</Empty>
