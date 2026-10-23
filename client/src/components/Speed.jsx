@@ -4,12 +4,14 @@ import { useApp } from "../context.js";
 import { clock, latency, num, rel } from "../format.js";
 import { Bar, Busy, Chip, ErrorBox, Icon, ICONS, useBusy, useLoad } from "./ui.jsx";
 import { usePoll } from "./hooks.js";
+import SpeedComparison from "./SpeedComparison.jsx";
 
 const has = (v) => v !== null && v !== undefined;
 
 /** The «Velocidad» and «Capacidad» cards of one model server: what it was measured at (a table the person starts) and what it can hold (read live). */
 export default function SpeedPanel({ recipe }) {
-  const load = useLoad(() => api.call("speed_card", { recipe, history: 6 }), [recipe]);
+  const load = useLoad(() => api.call("speed_card", { recipe, history: 20 }), [recipe]);
+  const [compare, setCompare] = useState(false);
   const e = load.data?.endpoints?.[0];
   const running = !!e?.job;
   // 2.5 s while a measurement runs, otherwise now and then (the capacity is a live read, but it hardly moves)
@@ -17,13 +19,14 @@ export default function SpeedPanel({ recipe }) {
   if (!e) return load.error ? <ErrorBox error={load.error} onRetry={load.reload} /> : null;
   return (
     <div className="sc-pair">
-      <SpeedCard e={e} recipe={recipe} onChanged={load.reload} />
+      <SpeedCard e={e} recipe={recipe} onChanged={load.reload} comparing={compare} onCompare={() => setCompare(!compare)} />
       <CapacityCard cap={e.capacity} />
+      {compare && <SpeedComparison cards={[e.latest, ...(e.history || [])].filter(Boolean)} recipe={recipe} />}
     </div>
   );
 }
 
-function SpeedCard({ e, recipe, onChanged }) {
+function SpeedCard({ e, recipe, onChanged, comparing, onCompare }) {
   const { t, lang, confirm, notify } = useApp();
   const [busy, run] = useBusy();
   const [older, setOlder] = useState(false);
@@ -111,6 +114,10 @@ function SpeedCard({ e, recipe, onChanged }) {
               )}
             </>
           )}
+          <button type="button" className="btn btn-sm sc-more" disabled={!(e.history || []).length} aria-expanded={comparing} onClick={onCompare}>
+            {t(comparing ? "sc_cmp_hide" : "sc_cmp_open")}
+          </button>
+          {!(e.history || []).length && <p className="help">{t("sc_cmp_need_two")}</p>}
         </>
       )}
     </section>
