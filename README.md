@@ -1,5 +1,7 @@
 # Prometheus's Hoard
 
+In **Models → Download from Hugging Face**, **Only these files** accepts optional filename patterns, one per line, using existing `model_download(include)` API/MCP. Blank retains the whole-repository download. Commas, quotes and spaces within each pattern are preserved; no remote file list or client-side matching is added. Expected size and progress use the native whole-repository estimate, not a filtered estimate. Choosing patterns does not establish that all files needed to load a model are present. Errors retain the draft; edits made during submission remain unsent after the accepted job. The existing Jobs view follows or cancels that job. Patterns are not added to saved job metadata/history.
+
 Runs a small cluster of NVIDIA DGX Spark computers from a Windows PC. Each Spark is a drive in a file explorer, its GPU, CPU, unified memory, power, disks and network are on a live panel, the models on its disks are listed and downloaded, models are loaded and unloaded through recipes, and every Spark can be locked, put to sleep, shut down, restarted or woken from the same window. Part of the Hoard family: it works on its own, from the Hoard Hub, from Faustus and from any MCP client.
 
 ![Equipo](docs/screens/equipo.png)
@@ -65,7 +67,7 @@ venv\Scripts\python -m prometheus_hoard        # http://127.0.0.1:5205
 
 The Sparks are reached with the SSH configuration of the PC (`~/.ssh/config` and its `Include`s; NVIDIA Sync writes the `Spark1`..`Spark3` aliases there). In Ajustes each Spark can have a different address or a jump host. `PROMETHEUS_FAKE=1` starts an invented three-Spark cluster in a temporary folder, for trying the interface without hardware.
 
-The MCP bridge is `python mcp_server.py` (43 tools; `faustus-plugin.json` describes it for Faustus and the Hoard Hub). `deploy_restart` reloads a recipe asynchronously, or waits with `wait=true`; follow `deployments` and `deploy_logs` for progress. Duplicate restarts are refused until reloading finishes. It keeps the recipe and endpoint configuration; restarting does not certify model output quality. Destructive tools (permanent deletes, emptying the trash, deleting a model, power actions, shell commands) need `confirm=true`.
+The MCP bridge is `python mcp_server.py` (45 tools; `faustus-plugin.json` describes it for Faustus and the Hoard Hub). `deploy_restart` reloads a recipe asynchronously, or waits with `wait=true`; follow `deployments` and `deploy_logs` for progress. Duplicate restarts are refused until reloading finishes. It keeps the recipe and endpoint configuration; restarting does not certify model output quality. Destructive tools (permanent deletes, emptying the trash, deleting a model, power actions, shell commands) need `confirm=true`.
 
 ## What it cannot do
 
@@ -93,6 +95,7 @@ Once the shared Hoard Link launcher is installed, the app shows the family's Fau
 
 ```
 python -m pytest           # backend, against the invented cluster
+node --test client/download-request.test.mjs  # literal patterns and unchanged empty selection
 npx vite build             # interface into prometheus_hoard/static
 python scripts/make_icon.py --family ..\Icons
 ```

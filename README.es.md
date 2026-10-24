@@ -1,5 +1,7 @@
 # Prometheus's Hoard
 
+En **Modelos → Descargar de Hugging Face**, **Sólo estos archivos** admite patrones de nombre opcionales, uno por línea, mediante `model_download(include)` API/MCP existente. Vacío mantiene la descarga del repositorio completo. Conserva comas, comillas y espacios dentro del patrón; no lista archivos remotos ni filtra en frontend. El tamaño esperado y el porcentaje usan la estimación nativa del repositorio entero, no una estimación filtrada. Elegir patrones no acredita que estén todos los archivos necesarios para cargar un modelo. Un error conserva el borrador; las ediciones realizadas durante el envío siguen sin enviar tras aceptar el trabajo. Trabajos permite seguirlo o cancelarlo como antes. No se añaden patrones al historial/metadatos guardados de trabajos.
+
 En **Equipo → Red CX7 · Pares de Sparks**, consulta y copia las direcciones
 destino detectadas de cada par mediante `fabric_status`. El detalle muestra el
 estado y velocidad declarados, MTU e IPv4 de las interfaces. Lee métricas en caché
@@ -58,7 +60,7 @@ venv\Scripts\python -m prometheus_hoard        # http://127.0.0.1:5205
 
 Las Sparks se alcanzan con la configuración SSH del PC (`~/.ssh/config` y sus `Include`; NVIDIA Sync escribe ahí los alias `Spark1`..`Spark3`). En Ajustes cada Spark puede tener otra dirección o un salto intermedio. `PROMETHEUS_FAKE=1` arranca un clúster inventado de tres Sparks para probar la interfaz sin hardware.
 
-El puente MCP es `python mcp_server.py` (43 herramientas). `deploy_restart` recarga una receta en segundo plano, o espera con `wait=true`; el progreso se consulta con `deployments` y `deploy_logs`. Los reinicios duplicados se rechazan hasta terminar la recarga. Conserva la receta y la configuración del endpoint; reiniciar no certifica la calidad de las respuestas del modelo. Las destructivas (borrado permanente, vaciar la papelera, borrar un modelo, encendido, comandos) piden `confirm=true`.
+El puente MCP es `python mcp_server.py` (45 herramientas). `deploy_restart` recarga una receta en segundo plano, o espera con `wait=true`; el progreso se consulta con `deployments` y `deploy_logs`. Los reinicios duplicados se rechazan hasta terminar la recarga. Conserva la receta y la configuración del endpoint; reiniciar no certifica la calidad de las respuestas del modelo. Las destructivas (borrado permanente, vaciar la papelera, borrar un modelo, encendido, comandos) piden `confirm=true`.
 
 ## Qué no hace
 
