@@ -1,7 +1,7 @@
 # Prometheus's Hoard
 
 En **Modelos → Trabajos**, Spark y estado consultan `jobs_list` antes de su
-límite50: permite encontrar un fallo antiguo fuera de los50últimos globales.
+límite de 50: permite encontrar un fallo antiguo fuera de los 50 últimos globales.
 El conteo indica registros devueltos, no todo el historial. **Terminados**
 conserva la vista local de los no-running entre esos registros y explica su
 alcance. Detalle/registro, Mostrar más/menos y cancelación explícita permanecen.

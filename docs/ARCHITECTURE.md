@@ -1,7 +1,7 @@
 # Architecture
 
 The Jobs view sends Spark/state filters to the existing jobs_list handler before
-the fixed50 limit; its Finished view alone retains the incumbent local non-running
+the fixed limit of 50; its Finished view alone retains the incumbent local non-running
 filter, explicitly labelled. useJobHistory owns query identity and one in-flight
 read per current query: identical polling/refresh requests share that promise,
 while changed criteria discard older results and hide their rows immediately.
@@ -9,7 +9,7 @@ Errors keep the last reading of the same criteria and permit retry. Selected job
 details close with notice when their ID leaves the returned view. The context
 provider distinguishes requested/result criteria, loading/error, visible IDs and
 the selected job from download drafts. No backend/schema/storage/dependency or
-poll interval changes; existing2/8s polling considers global active jobs as well.
+poll interval changes; existing 2/8s polling considers global active jobs as well.
 
 The existing Hugging Face download modal exposes `model_download(include)` as optional literal lines. `download-request.js` trims line edges, removes empty lines and omits include when empty; it performs no file matching. The native downloader, its whole-repository expected size and job lifecycle remain unchanged. A modal-local draft snapshot keeps later edits unsent after an accepted request and prevents a closed instance from closing a later modal. Its stable close callback prevents parent job refreshes from rerunning autofocus while editing patterns; Modal and shared hooks are unchanged. The creation context exposes requested include strings with object_id null; patterns are not added to saved job.meta. FakeWorld does not simulate pattern selection, so QA proves argument/command transmission without claiming selectively materialized bytes. The current catalogue has 45 tools; no tool/schema was added.
 
