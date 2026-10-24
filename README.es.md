@@ -1,5 +1,12 @@
 # Prometheus's Hoard
 
+**Modelos → En disco → Copiar a** admite una carpeta padre de destino opcional
+mediante `model_copy(dest)` existente. Vacío conserva el destino habitual nativo;
+un valor no vacío se envía literal para todas las Sparks elegidas. El modelo
+conserva su nombre. Sigue aplicándose la adaptación nativa del directorio personal
+y pueden actualizarse archivos coincidentes. Los cambios posteriores quedan sin
+enviar tras una solicitud aceptada. Sin nuevo motor, carga, tool o historial de destino.
+
 En **Modelos → Trabajos**, Spark y estado consultan `jobs_list` antes de su
 límite de 50: permite encontrar un fallo antiguo fuera de los 50 últimos globales.
 El conteo indica registros devueltos, no todo el historial. **Terminados**

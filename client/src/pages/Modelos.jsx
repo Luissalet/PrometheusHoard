@@ -410,17 +410,46 @@ function CopyModelModal({ node, m, nodes, onClose, onDone }) {
   const { t, lang, notify } = useApp();
   const others = nodes.filter((n) => n.id !== node);
   const [to, setTo] = useState(others.filter((n) => n.online).map((n) => n.id));
+  const [dest, setDest] = useState("");
+  const [accepted, setAccepted] = useState(null);
+  const [error, setError] = useState(null);
+  const draft = useRef(null);
+  draft.current = { to, dest };
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const close = useCallback(() => closeRef.current(), []);
   const [busy, run] = useBusy();
+  useContextProvider(() => ({ kind: "model-copy", object_id: `${node}:${m.path}`, dirty: true,
+    fields: { node, model: m.path, to: draft.current.to, dest: draft.current.dest, busy: !!busy.go,
+      error: error?.message || null, accepted: accepted ? { requested: accepted.requested, job_ids: accepted.jobs.map(j => j.id) } : null } }));
   const go = () => run("go", async () => {
-    const res = await api.call("model_copy", { node, model: m.path, to });
-    notify(t("copy_started", { n: (res.jobs || []).length }), "ok", { label: t("see_jobs"), href: "#/modelos?s=jobs" });
-    onDone?.();
-    onClose();
+    const sent = { node, model: m.path, to: [...draft.current.to], ...(draft.current.dest !== "" ? { dest: draft.current.dest } : {}) };
+    setError(null); setAccepted(null);
+    try {
+      const res = await api.call("model_copy", sent);
+      onDone?.();
+      if (!mounted.current) return;
+      notify(t("copy_started", { n: (res.jobs || []).length }), "ok", { label: t("see_jobs"), href: "#/modelos?s=jobs" });
+      if ((sent.dest ?? "") === draft.current.dest && JSON.stringify(sent.to) === JSON.stringify(draft.current.to)) close();
+      else setAccepted({ requested: sent, jobs: res.jobs || [] });
+    } catch (e) {
+      if (mounted.current) setError(e);
+    }
   });
   return (
-    <Modal title={t("copy_model_title", { name: m.name })} onClose={onClose}
-      footer={<><button type="button" className="btn" onClick={onClose}>{t("cancel")}</button><Busy className="btn btn-primary" busy={busy.go} disabled={!to.length} onClick={go}><Icon d={ICONS.send} size={14} />{t("copy")}</Busy></>}>
+    <Modal title={t("copy_model_title", { name: m.name })} onClose={close}
+      footer={<><button type="button" className="btn" onClick={close}>{t("cancel")}</button><Busy className="btn btn-primary" busy={busy.go} disabled={!to.length} onClick={go}><Icon d={ICONS.send} size={14} />{t("copy")}</Busy></>}>
       <p className="help">{t("copy_model_help", { size: bytes(m.bytes, lang), src: nodes.find((n) => n.id === node)?.name || node })}</p>
+      {error && <ErrorBox error={error} />}
+      {accepted && <div className="banner banner-info space-y-1" role="status">
+        <p>{t("copy_later_draft")}</p>
+        <p className="help" style={{ overflowWrap: "anywhere" }}>{t("copy_requested_folder")}: {accepted.requested.dest ?? t("copy_default_folder")}</p>
+        <p className="help" style={{ overflowWrap: "anywhere" }}>{t("dest_sparks")}: {accepted.requested.to.map(id => nodes.find(n => n.id === id)?.name || id).join(", ")}</p>
+        <p className="help" style={{ overflowWrap: "anywhere" }}>{accepted.jobs.map(j => j.id).join(", ") || t("copy_no_jobs")}</p>
+        <a className="btn-link" href="#/modelos?s=jobs" onClick={close}>{t("see_jobs")}</a>
+      </div>}
       <fieldset className="space-y-1.5">
         <legend className="label">{t("dest_sparks")}</legend>
         {others.map((n) => (
@@ -430,6 +459,10 @@ function CopyModelModal({ node, m, nodes, onClose, onDone }) {
           </label>
         ))}
       </fieldset>
+      <Field label={t("copy_dest_optional")} hint={t("copy_dest_help")}>
+        <input className="field mono" value={dest} onChange={e => setDest(e.target.value)} maxLength={2000}
+          placeholder="~/models" autoComplete="off" spellCheck={false} />
+      </Field>
     </Modal>
   );
 }
