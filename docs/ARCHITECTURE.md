@@ -1,5 +1,7 @@
 # Architecture
 
+The existing Hugging Face download modal exposes `model_download(include)` as optional literal lines. `download-request.js` trims line edges, removes empty lines and omits include when empty; it performs no file matching. The native downloader, its whole-repository expected size and job lifecycle remain unchanged. A modal-local draft snapshot keeps later edits unsent after an accepted request and prevents a closed instance from closing a later modal. Its stable close callback prevents parent job refreshes from rerunning autofocus while editing patterns; Modal and shared hooks are unchanged. The creation context exposes requested include strings with object_id null; patterns are not added to saved job.meta. FakeWorld does not simulate pattern selection, so QA proves argument/command transmission without claiming selectively materialized bytes. The current catalogue has 45 tools; no tool/schema was added.
+
 Equipo's manual CX7 pair panel calls the existing `fabric_status` handler through
 the normal UI API. It renders each native directional destination IP and cached
 interface facts without recomputing routes or starting probes/workers. Reads

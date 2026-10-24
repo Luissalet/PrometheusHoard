@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { useApp } from "../context.js";
 import { bytes, ctx, elapsed, num, pct, rel } from "../format.js";
@@ -6,6 +6,7 @@ import { Bar, Busy, Chip, CopyButton, Empty, ErrorBox, Field, Icon, ICONS, Modal
 import { useContextProvider, usePoll } from "../components/hooks.js";
 import RecipeMeasurements from "../components/RecipeMeasurements.jsx";
 import JobDetail from "../components/JobDetail.jsx";
+import { downloadRequest } from "../download-request.js";
 
 const ACTIVE = new Set(["running", "starting", "stopping", "failed", "unknown"]);
 const DEP_TONE = { running: "chip-ok", starting: "chip-amber", stopping: "chip-amber", failed: "chip-danger", unknown: "chip-amber", stopped: "" };
@@ -433,28 +434,47 @@ function CopyModelModal({ node, m, nodes, onClose, onDone }) {
 
 function HfModal({ nodes, onClose, onDone }) {
   const { t, notify } = useApp();
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  // Parent job refreshes must not rerun Modal's autofocus while a pattern is being typed.
+  const close = useCallback(() => closeRef.current(), []);
   const settings = useLoad(() => api.call("settings_get"), []);
   const [repo, setRepo] = useState("");
   const [node, setNode] = useState(nodes.find((n) => n.online)?.id || nodes[0]?.id || "");
   const [name, setName] = useState("");
   const [revision, setRevision] = useState("");
+  const [patterns, setPatterns] = useState("");
+  const [accepted, setAccepted] = useState(null);
+  const currentDraft = useRef(null);
+  currentDraft.current = { repo, node, name, revision, patterns };
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [busy, run] = useBusy();
   const valid = /^[\w.-]+\/[\w.-]+$/.test(repo.trim());
   // A creation form: the typed fields reach the assistant's context (no object exists yet).
   useContextProvider(() => {
-    const fields = Object.fromEntries(Object.entries({ repo: repo.trim(), node, name: name.trim(), revision: revision.trim() }).filter(([, v]) => v));
-    return { kind: "model-download-new", object_id: null, dirty: !!(repo.trim() || name.trim() || revision.trim()), fields };
+    const fields = Object.fromEntries(Object.entries(downloadRequest(currentDraft.current)).filter(([, v]) => v));
+    return { kind: "model-download-new", object_id: null, dirty: !!(repo.trim() || name.trim() || revision.trim() || patterns.trim()), fields };
   });
   const go = () => run("go", async () => {
-    await api.call("model_download", { node, repo: repo.trim(), name: name.trim(), revision: revision.trim() });
-    notify(t("download_started", { repo: repo.trim() }), "ok", { label: t("see_jobs"), href: "#/modelos?s=jobs" });
+    const sent = currentDraft.current;
+    const body = downloadRequest(sent);
+    const job = await api.call("model_download", body);
+    notify(t("download_started", { repo: body.repo }), "ok", { label: t("see_jobs"), href: "#/modelos?s=jobs" });
     onDone?.();
-    onClose();
+    if (!mounted.current) return;
+    if (Object.keys(sent).every((key) => currentDraft.current[key] === sent[key])) close();
+    else setAccepted(job);
   });
   return (
-    <Modal title={t("hf_download")} onClose={onClose}
-      footer={<><button type="button" className="btn" onClick={onClose}>{t("cancel")}</button><Busy className="btn btn-primary" busy={busy.go} disabled={!valid || !node} onClick={go}><Icon d={ICONS.download} size={14} />{t("download")}</Busy></>}>
-      <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (valid && node) go(); }}>
+    <Modal title={t("hf_download")} onClose={close}
+      footer={<><button type="button" className="btn" onClick={close}>{t("cancel")}</button><Busy className="btn btn-primary" busy={busy.go} disabled={!valid || !node} onClick={go}><Icon d={ICONS.download} size={14} />{t("download")}</Busy></>}>
+      <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (valid && node && !busy.go) go(); }}>
+        {accepted && <div className="banner banner-info space-y-1" role="status">
+          <p>{t("hf_later_draft")}</p>
+          <p className="help" style={{ overflowWrap: "anywhere" }}>{accepted.id} · {accepted.meta?.target || accepted.watch || "—"}</p>
+          <a className="btn-link" href="#/modelos?s=jobs" onClick={close}>{t("see_jobs")}</a>
+        </div>}
         <Field label={t("hf_repo")} hint={t("hf_repo_help")}>
           <input className="field mono" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="org/modelo" autoComplete="off" spellCheck={false} />
         </Field>
@@ -472,6 +492,10 @@ function HfModal({ nodes, onClose, onDone }) {
           </Field>
         </div>
         <p className="help">{settings.data ? (settings.data.hf_token ? t("hf_token_set") : <>{t("hf_token_missing")} <a className="btn-link" href="#/ajustes">{t("nav_settings")}</a></>) : ""}</p>
+        <Field label={t("hf_include")} hint={t("hf_include_hint")}>
+          <textarea className="field mono" value={patterns} onChange={(e) => setPatterns(e.target.value)} rows={3} placeholder={"*Q4_K_M.gguf\n*.json"} spellCheck={false} autoComplete="off" />
+        </Field>
+        <p className="help">{t("hf_include_progress")}</p>
         <button type="submit" hidden />
       </form>
     </Modal>
