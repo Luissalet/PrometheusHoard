@@ -1,5 +1,12 @@
 # Prometheus's Hoard
 
+**Models → On disk → Copy to** accepts an optional destination parent folder through
+the existing `model_copy(dest)` operation. Blank keeps the usual native destination;
+a non-empty value is sent literally for all selected Sparks. The model keeps its
+folder name. Native home-directory adaptation still applies and matching files
+may be updated. Later edits remain unsent after an accepted request. This adds no
+transfer engine, model load, tool or persisted destination history.
+
 In **Models → Download from Hugging Face**, **Only these files** accepts optional filename patterns, one per line, using existing `model_download(include)` API/MCP. Blank retains the whole-repository download. Commas, quotes and spaces within each pattern are preserved; no remote file list or client-side matching is added. Expected size and progress use the native whole-repository estimate, not a filtered estimate. Choosing patterns does not establish that all files needed to load a model are present. Errors retain the draft; edits made during submission remain unsent after the accepted job. The existing Jobs view follows or cancels that job. Patterns are not added to saved job metadata/history.
 
 Runs a small cluster of NVIDIA DGX Spark computers from a Windows PC. Each Spark is a drive in a file explorer, its GPU, CPU, unified memory, power, disks and network are on a live panel, the models on its disks are listed and downloaded, models are loaded and unloaded through recipes, and every Spark can be locked, put to sleep, shut down, restarted or woken from the same window. Part of the Hoard family: it works on its own, from the Hoard Hub, from Faustus and from any MCP client.

@@ -1,5 +1,13 @@
 # Architecture
 
+CopyModelModal exposes the existing model_copy(dest) as an optional literal parent
+folder. Empty omits dest; the native home-prefix adaptation and rsync semantics
+are unchanged. Accepted requests/job IDs are separate from later draft edits;
+closed instances cannot close a new dialog. A stable close callback preserves
+autofocus through parent job refreshes. The model-copy context carries the source,
+selected destinations, draft and accepted request, not an inferred resolved path.
+No backend, catalogue45, dependency, job metadata or stored history changes.
+
 The Jobs view sends Spark/state filters to the existing jobs_list handler before
 the fixed limit of 50; its Finished view alone retains the incumbent local non-running
 filter, explicitly labelled. useJobHistory owns query identity and one in-flight

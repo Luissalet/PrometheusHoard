@@ -32,6 +32,30 @@ def test_copy_uses_the_fabric(call, world):
     assert jobs[0]["meta"]["host"].startswith("10.100.")
 
 
+def test_copy_destination_is_literal_parent_with_native_home_adaptation(call, world, services):
+    import shlex
+
+    services.cluster.node("spark1").metrics["home"] = "/home/origin"
+    services.cluster.node("spark2").metrics["home"] = "/home/target"
+    source = "/home/origin/models/fixture"
+    destination = "/home/origin/Ensayo 'ñ, #1"
+    args = {"node": "spark1", "model": source, "to": ["spark2"], "dest": destination}
+    job = call("model_copy", args)["jobs"][0]
+    command = world.jobs[job["id"]]["cmd"]
+    parts = shlex.split(command)
+    adapted = "/home/target/Ensayo 'ñ, #1"
+    split_at = parts.index("&&")
+    assert parts[split_at - 3:split_at] == ["mkdir", "-p", adapted]
+    assert parts[-2] == source and parts[-1].endswith(":" + adapted + "/")
+    assert job["meta"]["src"] == "spark1" and job["meta"]["dst"] == "spark2"
+    assert "dest" not in job["meta"]  # the UI must not invent persisted destination history
+    assert args["dest"] == destination
+    default = call("model_copy", {"node": "spark1", "model": source, "to": ["spark2"]})["jobs"][0]
+    default_parts = shlex.split(world.jobs[default["id"]]["cmd"])
+    split_default = default_parts.index("&&")
+    assert default_parts[split_default - 3:split_default] == ["mkdir", "-p", "/home/target/models"]
+
+
 def test_model_delete_confirm(call):
     assert call("model_delete", {"node": "spark3", "model": "qwen3.8-27b-nvfp4"}, status=400)["code"] == "confirm_required"
     call("model_delete", {"node": "spark3", "model": "qwen3.8-27b-nvfp4", "confirm": True})
