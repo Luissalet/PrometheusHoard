@@ -80,6 +80,21 @@ def test_recipe_write_and_foreign_schema(call, services):
     assert call("recipe_write", {"recipe": "foreign", "definition": definition, "scripts": {"start.sh": "", "stop.sh": ""}}, status=409)
 
 
+def test_job_history_filters_before_limit_without_writing_recorded_jobs(call, services):
+    records = [{"id": "old-failed", "node": "spark1", "kind": "copy", "title": "Older failed fixture", "state": "failed", "rc": 7,
+                "created": 100.0, "finished": 110.0, "log": "old fixture log"}]
+    records += [{"id": f"new-{i}", "node": "spark2", "kind": "copy", "title": f"New fixture {i}", "state": "done", "rc": 0,
+                 "created": 200.0 + i, "finished": 300.0 + i, "log": "done fixture"} for i in range(59)]
+    services.jobs.jobs = {job["id"]: job for job in records}
+    services.jobs._save()
+    before = services.jobs.path.read_bytes()
+    assert "old-failed" not in {job["id"] for job in call("jobs_list", {"limit": 50})["jobs"]}
+    selected = call("jobs_list", {"node": "spark1", "state": "failed", "limit": 50})["jobs"]
+    assert [(job["id"], job["node"], job["state"], job["rc"], job["log"]) for job in selected] == [("old-failed", "spark1", "failed", 7, "old fixture log")]
+    assert call("jobs_list", {"node": "spark2", "state": "failed", "limit": 50})["jobs"] == []
+    assert services.jobs.path.read_bytes() == before
+
+
 def test_start_refuses_offline_node(call, world, services):
     world.power["spark3"] = "off"
     services.cluster.probe_all()

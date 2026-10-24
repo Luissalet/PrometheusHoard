@@ -2,6 +2,17 @@
 // Each entry is [español, English]; `{name}` placeholders are filled by t(key, { name }). A key with an `_one` twin uses it when n is 1.
 
 const D = {
+  job_filter_node: ["Spark del trabajo", "Job Spark"],
+  job_filter_state: ["Estado del trabajo", "Job state"],
+  job_filter_exact: ["estado exacto", "exact state"],
+  job_filter_count: ["{n} trabajos devueltos · {shown} en el listado · hasta 50 para estos criterios", "{n} jobs returned · {shown} in the list · up to 50 for these criteria"],
+  job_filter_count_one: ["1 trabajo devuelto · {shown} en el listado · hasta 50 para estos criterios", "1 job returned · {shown} in the list · up to 50 for these criteria"],
+  job_filter_limit: ["Se ha alcanzado el límite de consulta; puede haber más trabajos registrados.", "The query limit was reached; more recorded jobs may exist."],
+  job_filter_finished_hint: ["Terminados muestra los trabajos que no están en marcha entre los últimos 50 devueltos para esta Spark. No es un estado nativo ni todo el historial.", "Finished shows non-running jobs among the latest 50 returned for this Spark. It is not a native state or the entire history."],
+  job_filter_previous: ["No se pudo actualizar. Se conserva la última lectura de estos criterios.", "Refresh failed. The last reading for these criteria is retained."],
+  job_filter_selection_closed: ["El detalle anterior se ha cerrado porque el trabajo ya no aparece en este listado.", "The previous detail was closed because that job is no longer in this list."],
+  job_filter_empty: ["Sin trabajos para estos filtros", "No jobs for these filters"],
+  job_filter_empty_help: ["Cambia la Spark o el estado para consultar otros trabajos registrados.", "Change the Spark or state to read other recorded jobs."],
   fabric_title: ["Red CX7 · Pares de Sparks", "CX7 network · Spark pairs"],
   fabric_open: ["Ver pares", "View pairs"],
   fabric_query: ["Consultar direcciones", "Read addresses"],

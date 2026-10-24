@@ -7,6 +7,7 @@ import { useContextProvider, usePoll } from "../components/hooks.js";
 import RecipeMeasurements from "../components/RecipeMeasurements.jsx";
 import JobDetail from "../components/JobDetail.jsx";
 import { downloadRequest } from "../download-request.js";
+import { jobQueryArguments, useJobHistory } from "../job-history.js";
 
 const ACTIVE = new Set(["running", "starting", "stopping", "failed", "unknown"]);
 const DEP_TONE = { running: "chip-ok", starting: "chip-amber", stopping: "chip-amber", failed: "chip-danger", unknown: "chip-amber", stopped: "" };
@@ -16,11 +17,12 @@ export default function Modelos({ query }) {
   const { t, ov, version } = useApp();
   const deps = useLoad(() => api.call("deployments"), [version]);
   const recipes = useLoad(() => api.call("recipes_list"), [version]);
-  const jobs = useLoad(() => api.call("jobs_list", { limit: 50 }), [version]);
+  const [jobQuery, setJobQuery] = useState({ node: "", state: "" });
+  const jobs = useJobHistory(jobQuery, version);
   const [logsOf, setLogsOf] = useState(null);
   const deployments = deps.data?.deployments || [];
   const moving = deployments.some((d) => d.state === "starting" || d.state === "stopping");
-  const jobsActive = (jobs.data?.jobs || []).some((j) => j.state === "running");
+  const jobsActive = [...(ov?.jobs || []), ...(jobs.data?.jobs || [])].some((j) => j.state === "running");
   usePoll(() => deps.reload(), moving ? 2000 : 8000);
   usePoll(() => jobs.reload(), jobsActive ? 2000 : 8000);
 
@@ -70,7 +72,7 @@ export default function Modelos({ query }) {
 
       <DiskModels nodes={nodes} onJob={jobs.reload} />
 
-      <Jobs jobs={jobs} />
+      <Jobs jobs={jobs} query={jobQuery} onQuery={setJobQuery} nodes={nodes} />
 
       {logsOf && <LogsModal d={logsOf} nodes={nodes} onClose={() => setLogsOf(null)} />}
     </div>
@@ -503,25 +505,46 @@ function HfModal({ nodes, onClose, onDone }) {
 }
 
 // ------------------------------------------------------------------ jobs
-function Jobs({ jobs }) {
+function Jobs({ jobs, query, onQuery, nodes }) {
   const { t, lang, toastError, notify } = useApp();
   const [busy, run] = useBusy();
-  const [filter, setFilter] = useState("all");
   const [more, setMore] = useState(false);
   const [selected, setSelected] = useState(null);
-  const list = (jobs.data?.jobs || []).filter((j) => filter === "all" || (filter === "active" ? j.state === "running" : j.state !== "running"));
+  const [selectionNotice, setSelectionNotice] = useState(false);
+  const returned = jobs.data?.jobs || [];
+  const list = returned.filter(j => query.state !== "finished" || j.state !== "running");
+  useEffect(() => { setMore(false); }, [query.node, query.state]);
+  useEffect(() => {
+    if (jobs.data && selected && !list.some(j => j.id === selected)) { setSelected(null); setSelectionNotice(true); }
+  }, [jobs.data, query.state, selected]);
+  useContextProvider(() => ({ kind: "job-history", object_id: null, dirty: false, fields: { requested: jobQueryArguments(query), view_state: query.state, result_query: jobs.resultQuery ? jobQueryArguments(jobs.resultQuery) : null, result_view_state: jobs.resultQuery?.state ?? null, loading: jobs.loading, error: jobs.error?.message || null, returned_ids: returned.map(j => j.id), visible_ids: list.map(j => j.id), selected_job_id: list.some(j => j.id === selected) ? selected : null } }));
   const cancel = (j) => run(j.id, async () => {
     await api.call("job_cancel", { job: j.id });
     notify(t("job_cancelled_msg", { title: j.title }));
     jobs.reload();
   }).catch(toastError);
   return (
-    <Section id="jobs" title={t("sec_jobs")} count={(jobs.data?.jobs || []).length || undefined}
+    <Section id="jobs" title={t("sec_jobs")} count={jobs.data ? list.length : undefined}
       actions={<div className="seg" role="group" aria-label={t("filter")}>
-        {["all", "active", "finished"].map((f) => <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>{t(`jobs_${f}`)}</button>)}
+        {["all", "active", "finished"].map((f) => <button key={f} type="button" aria-pressed={query.state === (f === "all" ? "" : f)} onClick={() => onQuery({ ...query, state: f === "all" ? "" : f })}>{t(`jobs_${f}`)}</button>)}
       </div>}>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label={t("job_filter_node")}><select className="field" value={query.node} onChange={event => onQuery({ ...query, node: event.target.value })}>
+          <option value="">{t("all_sparks")}</option>{nodes.map(node => <option key={node.id} value={node.id}>{node.name || node.id} · {node.id}</option>)}
+        </select></Field>
+        <Field label={t("job_filter_state")}><select className="field" value={query.state} onChange={event => onQuery({ ...query, state: event.target.value })}>
+          {["", "active", "finished", "running", "done", "failed", "cancelled", "lost"].map(state => <option key={state} value={state}>{t(state === "" ? "jobs_all" : state === "active" || state === "finished" ? `jobs_${state}` : `job_${state}`)}{state === "running" ? ` · ${t("job_filter_exact")}` : ""}</option>)}
+        </select></Field>
+      </div>
+      <div className="help mt-3 space-y-1" aria-live="polite">
+        {jobs.data && <p>{t("job_filter_count", { n: returned.length, shown: list.length })}</p>}
+        {jobs.data && returned.length === 50 && <p>{t("job_filter_limit")}</p>}
+        {query.state === "finished" && <p>{t("job_filter_finished_hint")}</p>}
+        {jobs.error && jobs.data && <p>{t("job_filter_previous")}</p>}
+        {selectionNotice && <p>{t("job_filter_selection_closed")}</p>}
+      </div>
       {jobs.error && <ErrorBox error={jobs.error} onRetry={jobs.reload} />}
-      {jobs.loading && !jobs.data ? <Loading /> : !list.length ? <Empty icon={ICONS.jobs} title={t("no_jobs")}>{t("no_jobs_help")}</Empty> : (
+      {jobs.loading && !jobs.data ? <Loading /> : !jobs.data ? null : !list.length ? <Empty icon={ICONS.jobs} title={t("job_filter_empty")}>{t("job_filter_empty_help")}</Empty> : (
         <div className="panel p-0 divide-list">
           {(more ? list : list.slice(0, 10)).map((j) => {
             const indeterminate = j.state === "running" && (j.progress === null || j.progress === undefined);
@@ -534,7 +557,7 @@ function Jobs({ jobs }) {
                     <div className="help">{t(`jobkind_${j.kind}`)} · {j.node} · {rel(j.created, lang)} · {elapsed(j.elapsed_s)}</div>
                   </div>
                   <Chip className={JOB_TONE[j.state]}>{j.state === "running" && <span className="spinner spinner-xs" />}{t(`job_${j.state}`)}</Chip>
-                  <button type="button" className="btn btn-sm" aria-label={t("job_detail_for", { title: j.title })} aria-expanded={selected === j.id} aria-controls={`job-detail-${j.id}`} onClick={() => setSelected(selected === j.id ? null : j.id)}>{t("job_detail_open")}</button>
+                  <button type="button" className="btn btn-sm" aria-label={t("job_detail_for", { title: j.title })} aria-expanded={selected === j.id} aria-controls={`job-detail-${j.id}`} onClick={() => { setSelected(selected === j.id ? null : j.id); setSelectionNotice(false); }}>{t("job_detail_open")}</button>
                   {j.state === "running" && <Busy className="btn btn-sm" busy={busy[j.id]} onClick={() => cancel(j)}><Icon d={ICONS.stop} size={12} />{t("cancel")}</Busy>}
                 </div>
                 {j.state === "running" && (
