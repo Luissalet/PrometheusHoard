@@ -8,6 +8,16 @@ Runs a small cluster of NVIDIA DGX Spark computers from a Windows PC. Each Spark
 
 ## What it does
 
+In **Models → Jobs**, Spark and state controls query the existing `jobs_list`
+operation before its 50-record limit. This can find an older failed job outside
+the latest 50 global records. Results identify the requested criteria; the count
+is returned records, not a total history count. **Finished** retains the existing
+local view of non-running jobs among the returned records and labels that scope.
+Detail/log, Show more/less and explicit cancellation remain available. Polling
+shares an identical pending query so slow readings can finish; older filters
+cannot replace a newer result. This adds no job creation, retry, remote probe or
+new backend/MCP45 tool.
+
 In **Equipo → Red CX7 · Pares de Sparks**, read and copy each pair's detected
 destination addresses with the existing `fabric_status` tool. Interface details
 show reported link state/speed, MTU and IPv4 addresses. This is a manual read of

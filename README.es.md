@@ -1,5 +1,14 @@
 # Prometheus's Hoard
 
+En **Modelos → Trabajos**, Spark y estado consultan `jobs_list` antes de su
+límite50: permite encontrar un fallo antiguo fuera de los50últimos globales.
+El conteo indica registros devueltos, no todo el historial. **Terminados**
+conserva la vista local de los no-running entre esos registros y explica su
+alcance. Detalle/registro, Mostrar más/menos y cancelación explícita permanecen.
+El polling comparte una consulta idéntica pendiente; una respuesta de filtros
+anteriores no sustituye el resultado actual. No añade creación/reintento de
+trabajos, sondeos remotos, backend ni herramientas a MCP45.
+
 En **Modelos → Descargar de Hugging Face**, **Sólo estos archivos** admite patrones de nombre opcionales, uno por línea, mediante `model_download(include)` API/MCP existente. Vacío mantiene la descarga del repositorio completo. Conserva comas, comillas y espacios dentro del patrón; no lista archivos remotos ni filtra en frontend. El tamaño esperado y el porcentaje usan la estimación nativa del repositorio entero, no una estimación filtrada. Elegir patrones no acredita que estén todos los archivos necesarios para cargar un modelo. Un error conserva el borrador; las ediciones realizadas durante el envío siguen sin enviar tras aceptar el trabajo. Trabajos permite seguirlo o cancelarlo como antes. No se añaden patrones al historial/metadatos guardados de trabajos.
 
 En **Equipo → Red CX7 · Pares de Sparks**, consulta y copia las direcciones
