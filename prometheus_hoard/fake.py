@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import queue
 import os
 import random
 import shutil
@@ -113,6 +114,7 @@ class FakeWorld:
         self.lock = threading.RLock()
         self.commands: list[tuple[str, str]] = []    # (node, command) for the tests
         self.wol: list[str] = []
+        self.desktop: dict[str, dict[str, Any]] = {}   # node -> {installed, running, password, viewers}: the invented remote desktops
         self.power: dict[str, str] = {}              # node -> "off" | "asleep"
         self.started = time.time()
         self.served_since: dict[str, float] = {}     # recipe -> when its servers came up (the "uptime" of the metrics counters)
@@ -483,6 +485,10 @@ class FakeTransport:
             return RunResult(0, "SUDO\n", "")
         if command.startswith("loginctl"):
             return RunResult(0, "", "")
+        if "vncpasswd" in command and " -f " in command:
+            with self.world.lock:
+                self.world.desktop.setdefault(self.node_id, {})["password"] = (stdin or "").strip()
+            return RunResult(0, "", "")
         if command.startswith("docker"):
             return RunResult(0, "vLLM server ready (demo)\n", "")
         if command.startswith("journalctl -k"):
@@ -570,6 +576,55 @@ class FakeTransport:
             "docker": True,
         }
 
+    def _desk(self) -> dict[str, Any]:
+        return self.world.desktop.setdefault(self.node_id, {"installed": False, "running": False, "password": "", "viewers": 0})
+
+    def _op_desktop(self, args: dict[str, Any]) -> Any:
+        """The remote desktop helper of an invented Spark: install state, a session that runs or not."""
+        op = args.get("op", "status")
+        with self.world.lock:
+            d = self._desk()
+            display = args.get("display", ":5")
+            if op == "start":
+                if not d.get("installed"):
+                    return {"error": "The remote desktop packages are not installed.", "code": "remote_failed", "hint": ""}
+                if not d.get("password"):
+                    return {"error": "The session password is not set.", "code": "remote_failed", "hint": ""}
+                again = d["running"]
+                d["running"] = True
+                d["geometry"] = args.get("geometry")
+                d["idle_min"] = args.get("idle_min")
+                d["keymap"] = args.get("keymap")
+                d["started"] = d.get("started") or time.time()
+            elif op == "stop":
+                d["running"] = False
+                d["started"] = None
+            out = {"display": display, "port": 5900 + int(display[1:]), "installed": bool(d["installed"]),
+                   "missing": [] if d["installed"] else list(args.get("packages") or [])[:3], "running": bool(d["running"]),
+                   "pid": 4321 if d["running"] else 0, "viewers": int(d.get("viewers", 0)) if d["running"] else 0,
+                   "has_password": bool(d.get("password")), "watchdog": bool(d["running"] and args.get("idle_min")), "user": "demo"}
+            if d["running"]:
+                out["uptime_s"] = int(time.time() - (d.get("started") or time.time()))
+            if not d["installed"]:
+                out["sudo_ok"] = d.get("sudo_ok", True)
+            if op == "start":
+                out.update(started=not again, already=again)
+            if op == "stop":
+                out["stopped"] = True
+            return out
+
+    def open_tunnel(self, host: str, port: int) -> "FakeChannel":
+        """A channel to the invented VNC server: greets like one and answers whatever is written in capitals."""
+        from .errors import SparkError
+
+        self._check_on()
+        with self.world.lock:
+            d = self._desk()
+            if not d["running"]:
+                raise SparkError("unavailable", f"{self.node_id}: nothing answers on {host}:{port} (demo).")
+            d["viewers"] = d.get("viewers", 0) + 1
+        return FakeChannel(self.world, self.node_id)
+
     def _op_accesslog(self, args: dict[str, Any]) -> Any:
         """The access lines of the container of a running invented server."""
         from .clients import parse_stamp
@@ -652,6 +707,9 @@ class FakeTransport:
             (d / "model.safetensors").write_bytes(b"\0" * 6144)
         if "fail.sh" in cmd or "exit 3" in cmd or self._script_fails(cmd):
             job["state"], job["rc"] = "failed", 3
+        if "apt-get install" in cmd:
+            with self.world.lock:
+                self._desk()["installed"] = True
         recipe = env.get("PROM_RECIPE")
         if recipe and "start.sh" in cmd:
             with self.world.lock:
@@ -664,6 +722,43 @@ class FakeTransport:
                 if not nodes:
                     self.world.serving.pop(recipe, None)
                     self.world.served_since.pop(recipe, None)
+
+
+class FakeChannel:
+    """What ``open_tunnel`` returns in the demo: socket-like, greets with an RFB banner and echoes the bytes written upper-cased."""
+
+    def __init__(self, world: FakeWorld, node_id: str):
+        self.world = world
+        self.node_id = node_id
+        self.inbox: "queue.Queue[bytes]" = queue.Queue()
+        self.inbox.put(b"RFB 003.008\n")
+        self.timeout = 1.0
+        self.closed = False
+
+    def settimeout(self, value: float) -> None:
+        self.timeout = value
+
+    def recv(self, n: int) -> bytes:
+        import socket
+
+        try:
+            return self.inbox.get(timeout=self.timeout or 1.0) if not self.closed else b""
+        except queue.Empty:
+            if self.closed:
+                return b""
+            raise socket.timeout()
+
+    def sendall(self, data: bytes) -> None:
+        self.inbox.put(bytes(data).upper())
+
+    def close(self) -> None:
+        if not self.closed:
+            self.closed = True
+            with self.world.lock:
+                d = self.world.desktop.get(self.node_id)
+                if d:
+                    d["viewers"] = max(0, d.get("viewers", 0) - 1)
+            self.inbox.put(b"")
 
 
 def fake_factory(world: FakeWorld):

@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api.js";
 import { initialLang, makeT, saveLang } from "./i18n.js";
 import { AppContext } from "./context.js";
 import { createSerialPoll } from "./polling.js";
-import { ConfirmDialog, Icon, ICONS } from "./components/ui.jsx";
+import { ConfirmDialog, Icon, ICONS, Spinner } from "./components/ui.jsx";
 import { useCopilotRefresh } from "./components/hooks.js";
 import Equipo from "./pages/Equipo.jsx";
 import Spark from "./pages/Spark.jsx";
+// the remote desktop page carries the VNC client: loaded only when someone opens it
+const Escritorio = lazy(() => import("./pages/Escritorio.jsx"));
 import Sirviendo from "./pages/Sirviendo.jsx";
 import Archivos from "./pages/Archivos.jsx";
 import Modelos from "./pages/Modelos.jsx";
@@ -17,6 +19,7 @@ export { useApp } from "./context.js";
 const PAGES = [
   { path: "", key: "nav_cluster", icon: ICONS.computer, component: Equipo, fast: true },
   { path: "spark", key: "nav_cluster", icon: ICONS.computer, component: Spark, hidden: true, parent: "", fast: true },
+  { path: "escritorio", key: "nav_desktop", icon: ICONS.desktop, component: Escritorio, hidden: true, parent: "" },
   { path: "sirviendo", key: "nav_serving", icon: ICONS.activity, component: Sirviendo, fast: true },
   { path: "archivos", key: "nav_files", icon: ICONS.folder, component: Archivos },
   { path: "modelos", key: "nav_models", icon: ICONS.models, component: Modelos, badge: "work" },
@@ -210,7 +213,9 @@ export default function App() {
               {t("stale")}: {ovError.message}. <button type="button" className="btn-link" onClick={refreshOv}>{t("retry")}</button>
             </div>
           )}
-          <Component key={page.path === "spark" ? `spark/${route.param}` : page.path} param={route.param} query={route.query} />
+          <Suspense fallback={<div className="help flex items-center gap-2"><Spinner /> {t("loading")}</div>}>
+          <Component key={page.path === "spark" || page.path === "escritorio" ? `${page.path}/${route.param}` : page.path} param={route.param} query={route.query} />
+          </Suspense>
         </main>
       </div>
       <Toasts toasts={toasts} onClose={closeToast} />

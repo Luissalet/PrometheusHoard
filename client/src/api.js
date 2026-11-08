@@ -72,4 +72,5 @@ export const api = {
   rawUrl: (node, path) => fileUrl("raw", node, path),
   upload,
   call,
+  desktopSession: (node) => request("GET", `/api/desktop/${encodeURIComponent(node)}/session`),
 };

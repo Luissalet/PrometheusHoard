@@ -8,6 +8,7 @@ export default defineConfig({
   build: {
     outDir: '../prometheus_hoard/static',
     emptyOutDir: true,
+    target: 'esnext',   // the VNC client uses top-level await
   },
   server: {
     host: '127.0.0.1',

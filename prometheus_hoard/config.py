@@ -73,6 +73,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "xid_watch": True,               # read the kernel log of each Spark for NVIDIA Xid / full-chip reset / GSP errors (warns only)
     "xid_interval_s": 60.0,          # seconds between two reads of the kernel logs
     "xid_notify": True,              # tell the family hub (notifications) when a new error shows up
+    "desktop_display": ":5",         # X display of the remote desktop session on every Spark (VNC port = 5900 + number, bound to 127.0.0.1)
+    "desktop_geometry": "1600x900",  # size of that virtual screen
+    "desktop_idle_min": 30,          # stop the session after this many minutes without a viewer (0 = never)
+    "desktop_keymap": "es",          # keyboard layout set in the session (setxkbmap); empty = leave the default
 }
 
 
@@ -116,6 +120,10 @@ class Config:
     @property
     def xid_path(self) -> Path:
         return self.data_dir / "xid_events.json"
+
+    @property
+    def desktop_path(self) -> Path:
+        return self.data_dir / "desktop-passwords.json"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -185,9 +193,34 @@ class Settings:
             data["xid_watch"] = bool(data["xid_watch"])
             data["xid_notify"] = bool(data["xid_notify"])
             data["xid_interval_s"] = min(max(float(data["xid_interval_s"]), 15.0), 3600.0)
+            data["desktop_display"] = normalize_display(data["desktop_display"])
+            data["desktop_geometry"] = normalize_geometry(data["desktop_geometry"])
+            data["desktop_idle_min"] = int(min(max(int(data["desktop_idle_min"]), 0), 1440))
+            data["desktop_keymap"] = normalize_keymap(data["desktop_keymap"])
             self._data = data
             write_json_atomic(self.path, data)
             return copy.deepcopy(data)
+
+
+def normalize_display(value: Any) -> str:
+    text = str(value or "").strip()
+    if not re.fullmatch(r":\d{1,3}", text) or int(text[1:]) < 1:
+        raise ValueError("desktop_display must look like :5 (a display number from 1 to 999)")
+    return f":{int(text[1:])}"
+
+
+def normalize_geometry(value: Any) -> str:
+    m = re.fullmatch(r"(\d{3,5})x(\d{3,5})", str(value or "").strip().lower())
+    if not m or not (320 <= int(m.group(1)) <= 7680 and 240 <= int(m.group(2)) <= 4320):
+        raise ValueError("desktop_geometry must look like 1600x900")
+    return f"{int(m.group(1))}x{int(m.group(2))}"
+
+
+def normalize_keymap(value: Any) -> str:
+    text = str(value or "").strip()
+    if text and not re.fullmatch(r"[A-Za-z0-9_,()-]{1,20}", text):
+        raise ValueError("desktop_keymap must be a keyboard layout name such as es or us")
+    return text
 
 
 NODE_FIELDS = ("id", "name", "ssh", "enabled", "api_host", "host", "proxy_jump", "color")
