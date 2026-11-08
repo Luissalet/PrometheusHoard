@@ -77,6 +77,7 @@ export default function Spark({ param }) {
         </div>
         <Chip className={ps.tone}>{ps.busy && <span className="spinner spinner-xs" />}{ps.label}</Chip>
         <a className="btn" href={`#/archivos/${encodeURIComponent(n.id)}`}><Icon d={ICONS.folder} size={15} />{t("open_files")}</a>
+        <a className="btn" href={`#/escritorio/${encodeURIComponent(n.id)}`}><Icon d={ICONS.desktop} size={15} />{t("desk_open")}</a>
         <PowerButton node={n} />
       </header>
 

@@ -10,6 +10,7 @@ from typing import Any, Optional
 from .clients import Clients
 from .cluster import Cluster, ssh_factory
 from .config import Config, Settings, norm_ip
+from .desktop import Desktop
 from .errors import SparkError
 from .files import Files
 from .hoard_link import family
@@ -76,6 +77,7 @@ class Services:
                                touched=lambda: self.serving.last_touch, **extra)
         self.speedcards = SpeedCards(self.recipes.endpoints, self.jobs, config.speedcards_path, get_json=self.recipes.http, get_text=self.serving.get,
                                      recipe=self.recipes.load, **({"transport": self.world.speed_transport()} if self.world is not None else {}))
+        self.desktop = Desktop(self.cluster, self.jobs, config.desktop_path, on_event=self.emit)
         self.xid = XidWatch(self.cluster.enabled, config.xid_path, self._xid_options, notifier=None if self.world is not None else self._notify)
         self._bg: Optional[threading.Thread] = None
         self._stop = threading.Event()

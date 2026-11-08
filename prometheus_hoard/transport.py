@@ -45,6 +45,8 @@ class Transport(Protocol):
 
     def sftp(self) -> Any: ...
 
+    def open_tunnel(self, host: str, port: int) -> Any: ...
+
     def close(self) -> None: ...
 
     def target(self) -> dict[str, Any]: ...
@@ -230,6 +232,19 @@ class SshTransport:
                 self._sftp = client.open_sftp()
                 self._sftp.get_channel().settimeout(max(self.timeout, 30.0))
             return self._sftp
+
+    def open_tunnel(self, host: str, port: int) -> Any:
+        """A ``direct-tcpip`` channel to ``host:port`` as seen from the Spark, on the connection that is already open (no extra port, no
+        ssh process). The channel has ``recv``/``sendall``/``settimeout``/``close`` like a socket."""
+        client = self._client_alive()
+        transport = client.get_transport()
+        if transport is None or not transport.is_active():
+            raise SparkError("unreachable", f"{self.node_id}: SSH is not connected.")
+        try:
+            return transport.open_channel("direct-tcpip", (host, int(port)), ("127.0.0.1", 0), timeout=self.timeout)
+        except Exception as exc:  # noqa: BLE001 - the remote refusing the connection is an expected failure
+            raise SparkError("unavailable", f"{self.node_id}: nothing answers on {host}:{port} ({exc}).",
+                             hint="Start the remote desktop of that Spark first.") from exc
 
     def reset(self) -> None:
         with self._lock:

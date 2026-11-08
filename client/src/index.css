@@ -606,3 +606,15 @@ button.xp-crumb:hover { background: var(--hover); }
 .fabric-node dd { display: flex; flex-wrap: wrap; gap: 6px 20px; min-width: 0; }
 .fabric-node dd .mono { flex-basis: 100%; }
 @media (max-width: 600px) { .fabric-directions { grid-template-columns: minmax(0, 1fr); } .fabric-node dl > div { grid-template-columns: minmax(0, 1fr); gap: 6px; } }
+
+
+/* Remote desktop (Escritorio) */
+.vnc-wrap { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.6rem; }
+.vnc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.vnc-screen { position: relative; width: 100%; height: min(72dvh, 900px); min-height: 260px; overflow: auto; background: #0b0d0a; border-radius: 6px; }
+.vnc-clip { display: grid; gap: 0.5rem; }
+.vnc-remote { max-width: 28rem; }
+.vnc-full { height: 100%; border-radius: 0; background: var(--bg); }
+.vnc-full .vnc-screen { flex: 1; height: auto; min-height: 0; }
+.desk-log { max-height: 11rem; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+@media (max-width: 640px) { .vnc-screen { height: 56dvh; } }

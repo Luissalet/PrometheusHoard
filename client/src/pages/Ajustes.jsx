@@ -5,7 +5,7 @@ import { rebaseSettingsForm, settingsPatch, settingsToForm } from "../copilot-co
 import { useContextProvider, useCopilotRefresh } from "../components/hooks.js";
 import { Busy, Chip, ErrorBox, Field, Icon, ICONS, Section, Spinner, Switch, useBusy, useLoad } from "../components/ui.jsx";
 
-const NUMS = ["poll_s", "idle_poll_s", "history_min", "ssh_timeout_s", "xid_interval_s"];
+const NUMS = ["poll_s", "idle_poll_s", "history_min", "ssh_timeout_s", "xid_interval_s", "desktop_idle_min"];
 
 export default function Ajustes() {
   const { t, lang, setLang, notify, changed, confirm } = useApp();
@@ -166,6 +166,15 @@ export default function Ajustes() {
           <Field label={t("xid_interval_s")} hint={t("xid_interval_help")}>
             <input className="field num" type="number" min="15" max="3600" step="5" disabled={!form.xid_watch} value={form.xid_interval_s} onChange={(e) => set("xid_interval_s", e.target.value)} />
           </Field>
+        </div>
+      </Section>
+
+      <Section title={t("desk_settings")}>
+        <div className="panel grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label={t("desk_display")} hint={t("desk_display_help")}><input className="field mono" value={form.desktop_display} onChange={(e) => set("desktop_display", e.target.value)} /></Field>
+          <Field label={t("desk_geometry")} hint={t("desk_geometry_help")}><input className="field mono" value={form.desktop_geometry} onChange={(e) => set("desktop_geometry", e.target.value)} /></Field>
+          <Field label={t("desk_idle_min")} hint={t("desk_idle_min_help")}><input className="field num" type="number" min="0" max="1440" step="5" value={form.desktop_idle_min} onChange={(e) => set("desktop_idle_min", e.target.value)} /></Field>
+          <Field label={t("desk_keymap")} hint={t("desk_keymap_help")}><input className="field mono" value={form.desktop_keymap} onChange={(e) => set("desktop_keymap", e.target.value)} /></Field>
         </div>
       </Section>
 

@@ -6,3 +6,4 @@ mcp>=1.10,<2
 paramiko>=3.4
 python-multipart>=0.0.9
 psutil>=5.9
+websockets>=13

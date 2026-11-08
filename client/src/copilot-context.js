@@ -3,7 +3,7 @@
 import { api } from "./api.js";
 import { splitList } from "./format.js";
 
-const PAGE_NAMES = { "": "cluster", spark: "spark", sirviendo: "serving", archivos: "files", modelos: "models", ajustes: "settings" };
+const PAGE_NAMES = { "": "cluster", spark: "spark", sirviendo: "serving", archivos: "files", modelos: "models", ajustes: "settings", escritorio: "desktop" };
 const EDITOR_ORDER = { "settings-form": 0, "model-download-new": 1, "client-name-form": 2, "file-editor": 3 };
 const MAX_SPARKS = 8;
 const MAX_DEPLOYMENTS = 8;
@@ -26,8 +26,8 @@ export function rebaseForm(previousBase, nextBase, form) {
 }
 
 const SCALARS = ["recipes_dir", "models_dirs", "hf_cache", "show_system", "trash_dir", "remote_dir", "default_endpoint", "xid_watch", "xid_notify",
-  "poll_s", "idle_poll_s", "history_min", "ssh_timeout_s", "xid_interval_s"];
-const NUMBERS = ["poll_s", "idle_poll_s", "history_min", "ssh_timeout_s", "xid_interval_s"];
+  "poll_s", "idle_poll_s", "history_min", "ssh_timeout_s", "xid_interval_s", "desktop_display", "desktop_geometry", "desktop_idle_min", "desktop_keymap"];
+const NUMBERS = ["poll_s", "idle_poll_s", "history_min", "ssh_timeout_s", "xid_interval_s", "desktop_idle_min"];
 const NODE_KEYS = ["id", "name", "ssh", "enabled", "api_host", "host", "proxy_jump", "color"];
 
 // The settings page form from what settings_get returned; every Spark row remembers the id it was loaded with (`_orig`).
@@ -43,6 +43,7 @@ export function settingsToForm(s) {
     remote_dir: s.remote_dir || "",
     default_endpoint: s.default_endpoint || "",
     xid_watch: s.xid_watch !== false, xid_interval_s: s.xid_interval_s ?? 60, xid_notify: s.xid_notify !== false,
+    desktop_display: s.desktop_display || ":5", desktop_geometry: s.desktop_geometry || "1600x900", desktop_idle_min: s.desktop_idle_min ?? 30, desktop_keymap: s.desktop_keymap ?? "es",
   };
 }
 
@@ -63,6 +64,9 @@ export function normalizeSettingsForm(form) {
     default_endpoint: form.default_endpoint || "",
     xid_watch: !!form.xid_watch,
     xid_notify: !!form.xid_notify,
+    desktop_display: String(form.desktop_display ?? "").trim(),
+    desktop_geometry: String(form.desktop_geometry ?? "").trim(),
+    desktop_keymap: String(form.desktop_keymap ?? "").trim(),
   };
   for (const k of NUMBERS) out[k] = form[k] === "" || form[k] === null || form[k] === undefined ? form[k] : Number(form[k]);
   return out;

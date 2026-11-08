@@ -84,6 +84,7 @@ export const ICONS = {
   clock: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2",
   box: "M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10",
   server: "M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01",
+  desktop: "M3 4h18v12H3zM8 20h8M12 16v4M7 9h4M7 12h7",
   jobs: "M4 6h10M4 12h16M4 18h7M18 4v4M16 6h4",
   warn: "M12 3l10 18H2zM12 10v5M12 18h.01",
   cloud: "M7 18a5 5 0 01-.9-9.9A6 6 0 0117.7 9 4.5 4.5 0 0117.5 18zM12 11v6M9.5 14.5L12 17l2.5-2.5",
