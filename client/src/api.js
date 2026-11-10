@@ -66,6 +66,8 @@ export const api = {
   health: () => request("GET", "/api/health"),
   overview: (detail = false) => request("GET", "/api/overview", { params: { detail: detail ? 1 : 0 } }),
   history: (node, minutes = 10) => request("GET", `/api/nodes/${encodeURIComponent(node)}/history`, { params: { minutes } }),
+  longHistory: (node, hours = 24) => request("GET", "/api/history", { params: { node, hours } }),
+  alerts: (hours = 168) => request("GET", "/api/alerts", { params: { hours } }),
   serving: () => request("GET", "/api/serving"),
   endpoints: () => request("GET", "/api/endpoints"),
   downloadUrl: (node, path) => fileUrl("download", node, path),
@@ -73,4 +75,16 @@ export const api = {
   upload,
   call,
   desktopSession: (node) => request("GET", `/api/desktop/${encodeURIComponent(node)}/session`),
+  desktopClipboard: (node) => request("GET", `/api/desktop/${encodeURIComponent(node)}/clipboard`),
+  desktopClipboardImage: async (node, bytes) => {
+    let response;
+    try {
+      response = await fetch(`/api/desktop/${encodeURIComponent(node)}/clipboard/image`, { method: "POST", headers: { "Content-Type": "image/png" }, body: bytes });
+    } catch (cause) {
+      const error = new Error(cause && cause.message ? cause.message : "Network error");
+      error.code = "network";
+      throw error;
+    }
+    return parse(response.status, response.ok, await response.text());
+  },
 };

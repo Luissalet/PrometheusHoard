@@ -5,7 +5,7 @@ import { rebaseSettingsForm, settingsPatch, settingsToForm } from "../copilot-co
 import { useContextProvider, useCopilotRefresh } from "../components/hooks.js";
 import { Busy, Chip, ErrorBox, Field, Icon, ICONS, Section, Spinner, Switch, useBusy, useLoad } from "../components/ui.jsx";
 
-const NUMS = ["poll_s", "idle_poll_s", "history_min", "ssh_timeout_s", "xid_interval_s", "desktop_idle_min"];
+const NUMS = ["poll_s", "idle_poll_s", "history_min", "ssh_timeout_s", "xid_interval_s", "desktop_idle_min", "history_days", "alert_after_s", "energy_price_kwh"];
 
 export default function Ajustes() {
   const { t, lang, setLang, notify, changed, confirm } = useApp();
@@ -165,6 +165,26 @@ export default function Ajustes() {
           </div>
           <Field label={t("xid_interval_s")} hint={t("xid_interval_help")}>
             <input className="field num" type="number" min="15" max="3600" step="5" disabled={!form.xid_watch} value={form.xid_interval_s} onChange={(e) => set("xid_interval_s", e.target.value)} />
+          </Field>
+        </div>
+      </Section>
+
+      <Section title={t("alert_settings")}>
+        <div className="panel grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="md:col-span-2 lg:col-span-4 space-y-3">
+            <label className="flex items-start gap-2"><Switch checked={form.alert_watch} onChange={(v) => set("alert_watch", v)} label={t("alert_watch")} />
+              <span><span className="block">{t("alert_watch")}</span><span className="help">{t("alert_watch_help")}</span></span></label>
+            <label className="flex items-start gap-2"><Switch checked={form.alert_notify} disabled={!form.alert_watch} onChange={(v) => set("alert_notify", v)} label={t("alert_notify")} />
+              <span><span className="block">{t("alert_notify")}</span><span className="help">{t("alert_notify_help")}</span></span></label>
+          </div>
+          <Field label={t("alert_after_s")} hint={t("alert_after_help")}>
+            <input className="field num" type="number" min="20" max="3600" step="10" disabled={!form.alert_watch} value={form.alert_after_s} onChange={(e) => set("alert_after_s", e.target.value)} />
+          </Field>
+          <Field label={t("history_days")} hint={t("history_days_help")}>
+            <input className="field num" type="number" min="1" max="730" step="1" value={form.history_days} onChange={(e) => set("history_days", e.target.value)} />
+          </Field>
+          <Field label={t("energy_price")} hint={t("energy_price_help")}>
+            <input className="field num" type="number" min="0" max="10" step="0.01" value={form.energy_price_kwh} onChange={(e) => set("energy_price_kwh", e.target.value)} />
           </Field>
         </div>
       </Section>
