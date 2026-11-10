@@ -5,8 +5,12 @@ keyboard and idle limit are settings) and stopped again; ``remote/desktop.py`` d
 session after ``desktop_idle_min`` minutes with no viewer. The VNC server only listens on 127.0.0.1 of the Spark. The browser talks to
 ``/api/desktop/<node>/ws``, which bridges to that port through a ``direct-tcpip`` channel (``Transport.open_tunnel``): no extra port is
 opened on the Spark or on this PC. The per-node VNC password is random, kept in ``<data>/desktop-passwords.json`` and in
-``~/.config/prometheus-desktop/passwd`` on the Spark (already obscured by ``vncpasswd -f``); the agent tools never return it, only the
-page of this app asks for it."""
+``~/.config/prometheus-desktop/d<display>/passwd`` on the Spark (already obscured by ``vncpasswd -f``); the agent tools never return it,
+only the page of this app asks for it.
+
+The page resizes the remote screen to its own window (RFB ``SetDesktopSize``) and syncs text through the RFB clipboard. Images go
+around it: ``clipboard_get`` reads the session's clipboard (image or text) and ``clipboard_set`` uploads a PNG or a text over SFTP and
+hands it to a small GTK owner process on the Spark (``remote/desktop.py``)."""
 
 from __future__ import annotations
 
@@ -27,6 +31,9 @@ from .transport import run_script
 PACKAGES = ("tigervnc-standalone-server", "tigervnc-common", "tigervnc-tools", "xfce4-session", "xfwm4", "xfce4-panel", "xfdesktop4", "xfce4-terminal",
             "xfce4-settings", "thunar", "dbus-x11")
 PASSWORD_LEN = 8        # the VNC authentication only looks at the first 8 characters
+CLIP_MAX_BYTES = 25 * 1024 * 1024      # biggest image that crosses the clipboard either way
+CLIP_TEXT_MAX = 1_000_000
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 def install_command(packages: tuple[str, ...] = PACKAGES) -> str:
@@ -52,6 +59,10 @@ class Desktop:
         return {"display": display, "port": 5900 + int(display[1:]), "geometry": s["desktop_geometry"], "idle_min": s["desktop_idle_min"],
                 "keymap": s["desktop_keymap"]}
 
+    def conf_dir(self) -> str:
+        """The folder of this display's session on every Spark, relative to the Spark user's home (also what SFTP resolves against)."""
+        return f".config/prometheus-desktop/d{int(self.options()['display'][1:])}"
+
     def _password(self, node: Node) -> str:
         with self._lock:
             data = read_json(self.path, default={}) or {}
@@ -75,7 +86,8 @@ class Desktop:
         return {"node": node.id, "name": node.conf["name"], "online": True, "installed": bool(raw.get("installed")), "missing": raw.get("missing") or [],
                 "running": bool(raw.get("running")), "viewers": int(raw.get("viewers") or 0), "display": raw.get("display", opts["display"]),
                 "port": raw.get("port", opts["port"]), "geometry": opts["geometry"], "idle_min": opts["idle_min"], "uptime_s": raw.get("uptime_s"),
-                "sudo_ok": raw.get("sudo_ok"), "watchdog": bool(raw.get("watchdog")), "install_job": self._install_job(node.id), "bridges": self._viewers.get(node.id, 0)}
+                "sudo_ok": raw.get("sudo_ok"), "watchdog": bool(raw.get("watchdog")), "install_job": self._install_job(node.id), "bridges": self._viewers.get(node.id, 0),
+                "desktop_dir": raw.get("desktop_dir") or ""}
 
     def _install_job(self, node_id: str) -> Optional[dict[str, Any]]:
         mine = [j for j in self.jobs.list(node=node_id, limit=300) if j["kind"] == "desktop_install"]
@@ -131,7 +143,7 @@ class Desktop:
             raise SparkError("unavailable", f"{node.conf['name']} does not have the remote desktop packages yet.",
                              hint="Run desktop_install (confirm=true) first.", missing=st.get("missing") or [])
         password = self._password(node)
-        d = "~/.config/prometheus-desktop"
+        d = "~/" + self.conf_dir()
         res = node.transport.run(f"umask 077 && mkdir -p {d} && V=$(command -v vncpasswd || command -v tigervncpasswd) && "
                                  f"$V -f > {d}/passwd.new && mv {d}/passwd.new {d}/passwd", timeout=20.0, stdin=password + "\n")
         if res.rc != 0:
@@ -147,6 +159,60 @@ class Desktop:
         out = self._call(node, "stop", timeout=40.0)
         self._event("desktop.stop", node)
         return self._view(node, out) | {"stopped": True}
+
+    # ------------------------------------------------------------------ clipboard (images and text outside the RFB stream)
+    def _running_node(self, node_id: str) -> Node:
+        node = self.cluster.node(node_id)
+        if not node.online:
+            raise SparkError("unreachable", f"{node.conf['name']} is not answering.")
+        return node
+
+    def clipboard_get(self, node_id: str, *, include_image: bool = True) -> dict[str, Any]:
+        """What the session's clipboard holds now: ``{kind: "image", png (base64), width, height, bytes}``, ``{kind: "text", text}`` or
+        ``{kind: ""}`` when it is empty. ``include_image=False`` keeps only the size of an image."""
+        node = self._running_node(node_id)
+        out = self._call(node, "clip_get", {"max_bytes": CLIP_MAX_BYTES}, timeout=40.0)
+        out = {k: v for k, v in out.items() if k in ("kind", "png", "width", "height", "bytes", "text", "too_big", "targets")}
+        if not include_image:
+            out.pop("png", None)
+        return {"node": node.id, **out}
+
+    def _upload_clip(self, node: Node, name: str, data: bytes) -> None:
+        folder = self.conf_dir()
+        try:
+            sftp = node.transport.sftp()
+            parts = folder.split("/")
+            for i in range(1, len(parts) + 1):     # the folder only exists once a session has been started with this display
+                try:
+                    sftp.mkdir("/".join(parts[:i]))
+                except OSError:
+                    pass
+            with sftp.open(f"{folder}/{name}", "wb") as fh:
+                fh.write(data)
+        except SparkError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - SFTP errors are plain exceptions
+            raise SparkError("remote_failed", f"{node.conf['name']}: could not upload the clipboard ({exc}).") from exc
+
+    def clipboard_set_image(self, node_id: str, data: bytes) -> dict[str, Any]:
+        """Put a PNG on the session's clipboard (paste it there with Ctrl+V)."""
+        node = self._running_node(node_id)
+        if not data.startswith(PNG_MAGIC):
+            raise SparkError("invalid", "The clipboard image must be a PNG.")
+        if len(data) > CLIP_MAX_BYTES:
+            raise SparkError("too_large", f"The image is {len(data) // (1024 * 1024)} MB; the clipboard takes up to {CLIP_MAX_BYTES // (1024 * 1024)} MB.")
+        self._upload_clip(node, "clip-in.png", data)
+        out = self._call(node, "clip_set", {"kind": "image"}, timeout=30.0)
+        return {"node": node.id, "kind": "image", "bytes": len(data), "ok": bool(out.get("ok"))}
+
+    def clipboard_set_text(self, node_id: str, text: str) -> dict[str, Any]:
+        """Put text on the session's clipboard without a viewer connected (the page itself sends text inside the RFB stream)."""
+        node = self._running_node(node_id)
+        if len(text) > CLIP_TEXT_MAX:
+            raise SparkError("too_large", f"The text has {len(text)} characters; the clipboard takes up to {CLIP_TEXT_MAX}.")
+        self._upload_clip(node, "clip-in.txt", text.encode("utf-8"))
+        out = self._call(node, "clip_set", {"kind": "text"}, timeout=30.0)
+        return {"node": node.id, "kind": "text", "chars": len(text), "ok": bool(out.get("ok"))}
 
     # ------------------------------------------------------------------ browser side
     def session(self, node_id: str) -> dict[str, Any]:

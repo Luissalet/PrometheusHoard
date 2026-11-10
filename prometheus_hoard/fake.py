@@ -585,6 +585,25 @@ class FakeTransport:
         with self.world.lock:
             d = self._desk()
             display = args.get("display", ":5")
+            if op in ("clip_get", "clip_set"):
+                if not d.get("running"):
+                    return {"error": "The desktop is not running.", "code": "remote_failed", "hint": ""}
+                if op == "clip_get":
+                    return dict(d.get("clip") or {"kind": "", "targets": []})
+                kind = "image" if args.get("kind") == "image" else "text"
+                path = self._sftp._p(f".config/prometheus-desktop/d{int(display[1:])}/clip-in.{'png' if kind == 'image' else 'txt'}")
+                if not path.exists():
+                    return {"error": "Nothing was uploaded for the clipboard.", "code": "remote_failed", "hint": ""}
+                data = path.read_bytes()
+                path.unlink()
+                if kind == "image":
+                    import base64
+
+                    d["clip"] = {"kind": "image", "png": base64.b64encode(data).decode("ascii"), "width": 1, "height": 1, "bytes": len(data),
+                                 "targets": ["image/png"]}
+                else:
+                    d["clip"] = {"kind": "text", "text": data.decode("utf-8"), "targets": ["UTF8_STRING"]}
+                return {"ok": True, "kind": kind, "pid": 999}
             if op == "start":
                 if not d.get("installed"):
                     return {"error": "The remote desktop packages are not installed.", "code": "remote_failed", "hint": ""}
@@ -602,7 +621,8 @@ class FakeTransport:
             out = {"display": display, "port": 5900 + int(display[1:]), "installed": bool(d["installed"]),
                    "missing": [] if d["installed"] else list(args.get("packages") or [])[:3], "running": bool(d["running"]),
                    "pid": 4321 if d["running"] else 0, "viewers": int(d.get("viewers", 0)) if d["running"] else 0,
-                   "has_password": bool(d.get("password")), "watchdog": bool(d["running"] and args.get("idle_min")), "user": "demo"}
+                   "has_password": bool(d.get("password")), "watchdog": bool(d["running"] and args.get("idle_min")), "user": "demo",
+                   "desktop_dir": "/home/demo/Desktop" if d["installed"] else ""}
             if d["running"]:
                 out["uptime_s"] = int(time.time() - (d.get("started") or time.time()))
             if not d["installed"]:
