@@ -1,6 +1,8 @@
 """The page of the remote desktop: the connection data and the WebSocket that carries the VNC stream.
 
 ``GET /api/desktop/{node}/session`` gives what the page needs to connect (the VNC password included, so it is not an agent tool).
+``GET /api/desktop/{node}/clipboard`` reads the session's clipboard (an image comes back as base64 PNG) and
+``POST /api/desktop/{node}/clipboard/image`` (body: the PNG bytes) puts an image on it; text normally travels inside the VNC stream.
 ``WS /api/desktop/{node}/ws`` bridges the browser to the VNC port on the Spark's loopback through an SSH ``direct-tcpip`` channel on the node's
 existing connection. The request guard (``hoard_link.guard``) runs in front of it: the ``Host`` must be local or allowed and a browser's
 ``Origin`` must be this app's own page (any other origin is closed before the upgrade is accepted)."""
@@ -22,6 +24,17 @@ router = APIRouter(prefix="/api/desktop")
 @router.get("/{node}/session")
 def session(request: Request, node: str):
     return services(request).desktop.session(node)
+
+
+@router.get("/{node}/clipboard")
+def clipboard(request: Request, node: str):
+    return services(request).desktop.clipboard_get(node, include_image=True)
+
+
+@router.post("/{node}/clipboard/image")
+async def clipboard_image(request: Request, node: str):
+    data = await request.body()
+    return await asyncio.to_thread(services(request).desktop.clipboard_set_image, node, data)
 
 
 def _pump_out(chan: Any, loop: asyncio.AbstractEventLoop, ws: WebSocket, stop: asyncio.Event) -> None:

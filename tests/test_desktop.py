@@ -1,3 +1,4 @@
+import sys
 import time
 
 import pytest
@@ -121,3 +122,56 @@ def test_guard_lets_the_apps_own_page_in_and_refuses_other_origins(client, call)
         assert ws.receive_bytes() == b"RFB 003.008\n"
     r = client.get("/api/desktop/spark2/session", headers={"origin": "https://evil.example"})
     assert r.status_code == 403
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def test_clipboard_image_round_trip_through_the_spark(client, call, services, world):
+    install(call)
+    assert client.post("/api/desktop/spark2/clipboard/image", content=PNG).json()["code"] == "remote_failed"   # no session yet
+    call("desktop_start", {"node": "spark2"})
+    assert call("desktop_clipboard_get", {"node": "spark2"})["kind"] == ""
+    r = client.post("/api/desktop/spark2/clipboard/image", content=PNG, headers={"content-type": "image/png"})
+    assert r.status_code == 200 and r.json()["kind"] == "image" and r.json()["bytes"] == len(PNG)
+    assert not services.cluster.node("spark2").transport.sftp()._p(".config/prometheus-desktop/d5/clip-in.png").exists()
+    body = client.get("/api/desktop/spark2/clipboard").json()
+    import base64
+    assert body["kind"] == "image" and base64.b64decode(body["png"]) == PNG
+    small = call("desktop_clipboard_get", {"node": "spark2"})
+    assert small["kind"] == "image" and "png" not in small and small["bytes"] == len(PNG)
+    assert call("desktop_clipboard_get", {"node": "spark2", "include_image": True})["png"]
+
+
+def test_clipboard_refuses_what_is_not_a_png(client, call):
+    install(call)
+    call("desktop_start", {"node": "spark2"})
+    r = client.post("/api/desktop/spark2/clipboard/image", content=b"GIF89a....")
+    assert r.status_code == 400 and r.json()["code"] == "invalid"
+
+
+def test_clipboard_text_from_a_tool_lands_in_the_session_folder_of_the_display(call, services, world):
+    install(call)
+    call("settings_set", {"desktop_display": ":7"})
+    call("desktop_start", {"node": "spark2"})
+    assert any("prometheus-desktop/d7" in c and "vncpasswd" in c for n, c in world.commands if n == "spark2")
+    out = call("desktop_clipboard_set", {"node": "spark2", "text": "ñandú → 日本"})
+    assert out["kind"] == "text" and out["chars"] == len("ñandú → 日本")
+    got = call("desktop_clipboard_get", {"node": "spark2"})
+    assert got == {"node": "spark2", "kind": "text", "text": "ñandú → 日本", "targets": ["UTF8_STRING"]}
+
+
+def test_status_tells_where_the_desktop_folder_is(call):
+    install(call)
+    assert call("desktop_status", {"node": "spark2"})["desktop_dir"] == "/home/demo/Desktop"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the helper runs on the Sparks (Linux)")
+def test_the_remote_helper_itself_answers_status(tmp_path, monkeypatch):
+    import json, subprocess, sys
+    from pathlib import Path
+    script = Path(__file__).parents[1] / "prometheus_hoard" / "remote" / "desktop.py"
+    monkeypatch.setenv("HOME", str(tmp_path))
+    out = subprocess.run([sys.executable, str(script), json.dumps({"op": "status", "display": ":7", "packages": []})], capture_output=True, text=True, timeout=60)
+    data = json.loads(out.stdout.strip().splitlines()[-1])
+    assert data["display"] == ":7" and data["port"] == 5907 and data["running"] is False and "desktop_dir" in data
