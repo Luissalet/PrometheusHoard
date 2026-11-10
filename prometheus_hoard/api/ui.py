@@ -52,6 +52,18 @@ def history(request: Request, node: str, minutes: int = 10):
     return services(request).history(node, max(1, min(minutes, 240)))
 
 
+@router.get("/history")
+def long_history(request: Request, node: str = "", hours: float = 24.0):
+    """Per-minute history of the Sparks bucketed for charts: ``{t: [...], nodes: {id: {gpu, temp, power, mem...}}, stats, incidents}``."""
+    return services(request).metrics_history(node, max(0.1, min(hours, 24 * 730)))
+
+
+@router.get("/alerts")
+def alerts(request: Request, hours: float = 168.0, node: str = ""):
+    """Open and past incidents (a Spark not answering, a model server not serving)."""
+    return services(request).alerts.snapshot(hours=max(0.1, min(hours, 24 * 730)), node=node)
+
+
 @router.get("/ui/tools")
 def ui_tools():
     return {"tools": [t["name"] for t in tool_catalog()]}

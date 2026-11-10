@@ -102,8 +102,8 @@ export default function Equipo() {
 }
 
 function eventTone(type) {
-  if (/failed|offline|lost/.test(type)) return "var(--danger)";
-  if (/online|done|running/.test(type)) return "var(--ok)";
+  if (/failed|offline|lost|_down/.test(type)) return "var(--danger)";
+  if (/online|done|running|_up/.test(type)) return "var(--ok)";
   if (/power|stopp|cancel/.test(type)) return "var(--warn)";
   return "var(--hoard-text-dim)";
 }
@@ -112,7 +112,7 @@ export function eventText(e, t, ov) {
   const name = (ov?.nodes || []).find((n) => n.id === e.node)?.name || e.name || e.node || "";
   const recipe = (ov?.deployments || []).find((d) => d.recipe === e.recipe)?.title || e.recipe || "";
   const key = `ev_${e.type.replace(/\./g, "_")}`;
-  const text = t(key, { name, title: e.title || "", recipe });
+  const text = t(key, { name, title: e.title || "", recipe, target: e.name || e.target || "" });
   return text === key ? `${e.type} ${name || recipe || e.title || ""}` : text;
 }
 

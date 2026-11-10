@@ -130,6 +130,15 @@ test("files, models, serving views", async () => {
   assert.deepEqual(serving.active_objects.map((o) => o.kind), ["deployment"]);
 });
 
+test("history view returns the Spark and the open outages", async () => {
+  const withAlerts = () => ({ ...overview(), alerts: { active: [{ id: "a1", kind: "spark", target: "spark2", name: "Spark2", started: 5, error: "timed out", expected: false }] } });
+  const c = await buildContext({ hash: "#/historial/spark1", getOverview: async () => withAlerts(), getSettings: async () => settings() });
+  assert.equal(c.view.page, "history");
+  assert.equal(c.view.object_id, "spark1");
+  assert.deepEqual(c.active_objects.map((o) => `${o.kind}:${o.object_id}`), ["spark:spark1", "alert:a1"]);
+  assert.deepEqual(c.active_objects[1].fields, { what: "spark", target: "spark2", since: 5, error: "timed out", expected: false });
+});
+
 test("settings view returns the settings and Sparks without secrets", async () => {
   const c = await buildContext({ hash: "#/ajustes", ...deps() });
   assert.equal(c.view.page, "settings");

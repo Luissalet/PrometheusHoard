@@ -10,6 +10,7 @@ import Spark from "./pages/Spark.jsx";
 // the remote desktop page carries the VNC client: loaded only when someone opens it
 const Escritorio = lazy(() => import("./pages/Escritorio.jsx"));
 import Sirviendo from "./pages/Sirviendo.jsx";
+import Historial, { alertLine } from "./pages/Historial.jsx";
 import Archivos from "./pages/Archivos.jsx";
 import Modelos from "./pages/Modelos.jsx";
 import Ajustes from "./pages/Ajustes.jsx";
@@ -21,6 +22,7 @@ const PAGES = [
   { path: "spark", key: "nav_cluster", icon: ICONS.computer, component: Spark, hidden: true, parent: "", fast: true },
   { path: "escritorio", key: "nav_desktop", icon: ICONS.desktop, component: Escritorio, hidden: true, parent: "" },
   { path: "sirviendo", key: "nav_serving", icon: ICONS.activity, component: Sirviendo, fast: true },
+  { path: "historial", key: "nav_history", icon: ICONS.clock, component: Historial, badge: "alerts" },
   { path: "archivos", key: "nav_files", icon: ICONS.folder, component: Archivos },
   { path: "modelos", key: "nav_models", icon: ICONS.models, component: Modelos, badge: "work" },
   { path: "ajustes", key: "nav_settings", icon: ICONS.settings, component: Ajustes },
@@ -117,7 +119,7 @@ export default function App() {
   const page = PAGES.find((p) => p.path === route.page) || PAGES[0];
   // Poll every 2 s on the cluster pages, every 3 s while something is starting or copying, else every 10 s; only while the tab is visible.
   const busy = !!(ov && ((ov.jobs || []).length || (ov.deployments || []).some((d) => d.state === "starting" || d.state === "stopping")
-    || (ov.nodes || []).some((n) => !["on", "off", "unknown"].includes(n.power_state))));
+    || (ov.nodes || []).some((n) => !["on", "off", "unknown", "unreachable"].includes(n.power_state))));
   const every = page.fast ? 2000 : busy ? 3000 : 10000;
   useEffect(() => {
     const poll = createSerialPoll(refreshOv, {
@@ -164,7 +166,9 @@ export default function App() {
   const current = page.hidden ? page.parent : page.path;
   const badges = {
     work: (ov?.jobs || []).length + (ov?.deployments || []).filter((d) => d.state === "starting" || d.state === "stopping").length,
+    alerts: (ov?.alerts?.active || []).filter((a) => !a.expected).length,
   };
+  const alarms = (ov?.alerts?.active || []).filter((a) => !a.expected);
   const demo = health?.demo || ov?.demo;
 
   return (
@@ -213,8 +217,14 @@ export default function App() {
               {t("stale")}: {ovError.message}. <button type="button" className="btn-link" onClick={refreshOv}>{t("retry")}</button>
             </div>
           )}
+          {alarms.length > 0 && route.page !== "historial" && route.page !== "archivos" && (
+            <div className="banner banner-danger mb-4" role="alert">
+              {alarms.map((a) => <div key={a.id}>{alertLine(a, t, lang)}</div>)}
+              <a className="btn-link" href="#/historial">{t("alert_see")}</a>
+            </div>
+          )}
           <Suspense fallback={<div className="help flex items-center gap-2"><Spinner /> {t("loading")}</div>}>
-          <Component key={page.path === "spark" || page.path === "escritorio" ? `${page.path}/${route.param}` : page.path} param={route.param} query={route.query} />
+          <Component key={page.path === "spark" || page.path === "escritorio" || page.path === "historial" ? `${page.path}/${route.param}` : page.path} param={route.param} query={route.query} />
           </Suspense>
         </main>
       </div>

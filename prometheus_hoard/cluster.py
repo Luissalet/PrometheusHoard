@@ -159,11 +159,13 @@ def ssh_factory(conf: dict[str, Any], settings: Settings) -> Transport:
 
 class Cluster:
     def __init__(self, settings: Settings, factory: TransportFactory = ssh_factory, *, clock: Callable[[], float] = time.time,
-                 on_change: Optional[Callable[[str, dict[str, Any]], None]] = None):
+                 on_change: Optional[Callable[[str, dict[str, Any]], None]] = None,
+                 on_sample: Optional[Callable[[str, dict[str, Any]], None]] = None):
         self.settings = settings
         self.factory = factory
         self.clock = clock
         self.on_change = on_change
+        self.on_sample = on_sample          # every new sample also goes to the long history (``history.MetricsStore``)
         self.nodes: dict[str, Node] = {}
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -238,7 +240,13 @@ class Cluster:
         lan.sort(key=lambda kv: (not kv[0].startswith("en"), kv[0]))   # wired before Wi-Fi: wake-on-LAN needs the cable
         if lan:
             node.mac = lan[0][1]["mac"]
-        node.history.append(node.sample(view, self.clock()))
+        sample = node.sample(view, self.clock())
+        node.history.append(sample)
+        if self.on_sample:
+            try:
+                self.on_sample(node.id, sample)
+            except Exception:  # noqa: BLE001 - the history must never break the live panel
+                log.exception("history sample")
         keep = self.clock() - 60 * int(self.settings["history_min"])
         while node.history and node.history[0]["t"] < keep:
             node.history.popleft()
@@ -294,7 +302,8 @@ class Cluster:
             "id": node.id, "name": node.conf["name"], "ssh": node.conf["ssh"], "enabled": node.conf.get("enabled", True),
             "color": node.conf.get("color", ""), "host": target.get("hostname"), "user": target.get("user"), "api_host": node.api_host(),
             "online": node.online, "error": node.error, "error_since": node.error_since, "probe_ms": node.probe_ms,
-            "power_state": node.power_state or ("on" if node.online else ("off" if node.error else "unknown")),
+            # "unreachable": it stopped answering and this app did not power it off (it may be off, hung or cut from the network)
+            "power_state": node.power_state or ("on" if node.online else ("unreachable" if node.error else "unknown")),
         }
         if node.metrics:
             m = node.metrics

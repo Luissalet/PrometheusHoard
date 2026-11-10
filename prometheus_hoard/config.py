@@ -77,6 +77,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "desktop_geometry": "1600x900",  # size of that virtual screen
     "desktop_idle_min": 30,          # stop the session after this many minutes without a viewer (0 = never)
     "desktop_keymap": "es",          # keyboard layout set in the session (setxkbmap); empty = leave the default
+    "history_days": 90,              # days of per-minute GPU / memory / temperature / power history kept in <data>/history.sqlite3
+    "alert_watch": True,             # warn when a Spark stops answering or a model server stops serving
+    "alert_after_s": 90.0,           # how long it must keep failing before it is an incident
+    "alert_notify": True,            # also tell the family hub's notifications (the bus always gets the event)
+    "energy_price_kwh": 0.0,         # price of a kWh to show what the Sparks cost in the history page; 0 = do not show
 }
 
 
@@ -124,6 +129,14 @@ class Config:
     @property
     def desktop_path(self) -> Path:
         return self.data_dir / "desktop-passwords.json"
+
+    @property
+    def history_path(self) -> Path:
+        return self.data_dir / "history.sqlite3"
+
+    @property
+    def alerts_path(self) -> Path:
+        return self.data_dir / "alerts.json"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -197,6 +210,11 @@ class Settings:
             data["desktop_geometry"] = normalize_geometry(data["desktop_geometry"])
             data["desktop_idle_min"] = int(min(max(int(data["desktop_idle_min"]), 0), 1440))
             data["desktop_keymap"] = normalize_keymap(data["desktop_keymap"])
+            data["history_days"] = int(min(max(int(data["history_days"]), 1), 730))
+            data["alert_watch"] = bool(data["alert_watch"])
+            data["alert_notify"] = bool(data["alert_notify"])
+            data["alert_after_s"] = min(max(float(data["alert_after_s"]), 20.0), 3600.0)
+            data["energy_price_kwh"] = round(min(max(float(data["energy_price_kwh"]), 0.0), 10.0), 4)
             self._data = data
             write_json_atomic(self.path, data)
             return copy.deepcopy(data)

@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Any, Optional
 
+from .alerts import Alerts
 from .clients import Clients
 from .cluster import Cluster, ssh_factory
 from .config import Config, Settings, norm_ip
@@ -16,6 +17,7 @@ from .files import Files
 from .hoard_link import family
 from .hoard_link.atomic import read_json, write_json_atomic
 from .hoard_link.tokens import read_or_create_token
+from .history import MetricsStore
 from .jobs import Jobs
 from .models import Models
 from .power import Power
@@ -51,7 +53,8 @@ class Services:
             hf_size = hf_size or (lambda repo, rev: 6144)
         self.events: list[dict[str, Any]] = []
         self._events_lock = threading.Lock()
-        self.cluster = Cluster(self.settings, factory, on_change=lambda kind, data: self.emit(f"node.{kind}", data))
+        self.metrics = MetricsStore(config.history_path, days=lambda: self.settings["history_days"])
+        self.cluster = Cluster(self.settings, factory, on_change=lambda kind, data: self.emit(f"node.{kind}", data), on_sample=self.metrics.add)
         self.jobs = Jobs(self.cluster, config.data_dir / "jobs.json", on_event=self.emit)
         self.files = Files(self.cluster)
         self.models = Models(self.cluster, self.jobs, hf_size=hf_size, secrets=self.secrets)
@@ -79,6 +82,8 @@ class Services:
                                      recipe=self.recipes.load, **({"transport": self.world.speed_transport()} if self.world is not None else {}))
         self.desktop = Desktop(self.cluster, self.jobs, config.desktop_path, on_event=self.emit)
         self.xid = XidWatch(self.cluster.enabled, config.xid_path, self._xid_options, notifier=None if self.world is not None else self._notify)
+        self.alerts = Alerts(self.cluster, self.recipes, config.alerts_path, self._alert_options, emit=self.emit,
+                             notifier=None if self.world is not None else self._notify)
         self._bg: Optional[threading.Thread] = None
         self._stop = threading.Event()
 
@@ -102,6 +107,10 @@ class Services:
                 self.power.remember()
             except Exception:  # noqa: BLE001
                 log.exception("housekeeping")
+            try:
+                self.alerts.check()
+            except Exception:  # noqa: BLE001
+                log.exception("alerts")
 
     def stop(self) -> None:
         self._stop.set()
@@ -111,6 +120,7 @@ class Services:
         self.serving.stop()
         self.cluster.stop()
         self.recipes.close()
+        self.metrics.close()
 
     # ------------------------------------------------------------------ events and secrets
     def emit(self, kind: str, data: dict[str, Any]) -> None:
@@ -142,6 +152,20 @@ class Services:
         else:
             data.pop(key, None)
         write_json_atomic(self.secrets_path, data)
+
+    # ------------------------------------------------------------------ alerts and long history
+    def _alert_options(self) -> dict[str, Any]:
+        return {"enabled": self.settings["alert_watch"], "after_s": self.settings["alert_after_s"], "notify": self.settings["alert_notify"]}
+
+    def metrics_history(self, node: str = "", hours: float = 24.0) -> dict[str, Any]:
+        """Per-minute history of the Sparks (all, or one) for the last ``hours``, bucketed for charts, with the incidents of that span."""
+        ids = [self.cluster.node(node).id] if node else [n.id for n in self.cluster.nodes.values()]
+        out = self.metrics.query(ids, hours)
+        out["names"] = {n.id: n.conf["name"] for n in self.cluster.nodes.values() if n.id in ids}
+        out["energy_price_kwh"] = self.settings["energy_price_kwh"]
+        out["incidents"] = self.alerts.snapshot(hours=hours, node=node, limit=200)["incidents"]
+        out["store"] = self.metrics.size()
+        return out
 
     # ------------------------------------------------------------------ Xid watcher
     def _xid_options(self) -> dict[str, Any]:
@@ -235,6 +259,7 @@ class Services:
             "detected": detected,
             "serving": self.serving.summary(),
             "xid": self.xid.summary(),
+            "alerts": self.alerts.summary(),
             "jobs": self.jobs.list(state="active", limit=20),
             "events": self.recent_events(time.time() - 600)[-20:],
             "demo": self.world is not None,
