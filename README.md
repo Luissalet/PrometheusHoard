@@ -134,3 +134,7 @@ Renewal failures remain visible; supervision continues until the lifecycle is st
 coordination check before its load worker starts. Cancellation cannot abandon an active stop/start.
 
 MIT licence.
+
+## Skills for the agents that connect
+
+This app carries procedures from the skill library of the family's workspace for the agents that connect to it: `cluster-model-serving`, `deployment-patterns`, `docker-patterns`, `performance-optimization`. They are named in what an agent reads on connecting, read with `skills_list` and `skill_read`, searched and assigned with `skills_library` and `skills_assign`, and offered as prompts. The person chooses them on the skills page (`/api/agent/skills/page`) or in the hub's Skills tab; the `skills` block of `faustus-plugin.json` holds what the app asks for by default.
