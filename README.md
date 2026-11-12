@@ -1,83 +1,44 @@
 # Prometheus's Hoard
 
-**Models → On disk → Copy to** accepts an optional destination parent folder through
-the existing `model_copy(dest)` operation. Blank keeps the usual native destination;
-a non-empty value is sent literally for all selected Sparks. The model keeps its
-folder name. Native home-directory adaptation still applies and matching files
-may be updated. Later edits remain unsent after an accepted request. This adds no
-transfer engine, model load, tool or persisted destination history.
-
-In **Models → Download from Hugging Face**, **Only these files** accepts optional filename patterns, one per line, using existing `model_download(include)` API/MCP. Blank retains the whole-repository download. Commas, quotes and spaces within each pattern are preserved; no remote file list or client-side matching is added. Expected size and progress use the native whole-repository estimate, not a filtered estimate. Choosing patterns does not establish that all files needed to load a model are present. Errors retain the draft; edits made during submission remain unsent after the accepted job. The existing Jobs view follows or cancels that job. Patterns are not added to saved job metadata/history.
-
-Runs a small cluster of NVIDIA DGX Spark computers from a Windows PC. Each Spark is a drive in a file explorer, its GPU, CPU, unified memory, power, disks and network are on a live panel, the models on its disks are listed and downloaded, models are loaded and unloaded through recipes, and every Spark can be locked, put to sleep, shut down, restarted or woken from the same window. Part of the Hoard family: it works on its own, from the Hoard Hub, from Faustus and from any MCP client.
+Runs a small cluster of NVIDIA DGX Spark computers from a Windows PC: live status, files, models, recipes and power for every Spark in one window.
 
 ![Equipo](docs/screens/equipo.png)
 
+## What it is
+
+Each Spark appears as a drive in a file explorer. Its GPU, CPU, unified memory, power, disks and network are on a live panel, the models on its disks are listed and downloaded, models are loaded and unloaded through recipes, and every Spark can be locked, put to sleep, shut down, restarted or woken from the same window.
+
+It is one app of the Hoard family: it works on its own, from the Hoard Hub, from Faustus and from any MCP client. Faustus reads it to use the Sparks as its default model backend.
+
 ## What it does
 
-In **Models → Jobs**, Spark and state controls query the existing `jobs_list`
-operation before its 50-record limit. This can find an older failed job outside
-the latest 50 global records. Results identify the requested criteria; the count
-is returned records, not a total history count. **Finished** retains the existing
-local view of non-running jobs among the returned records and labels that scope.
-Detail/log, Show more/less and explicit cancellation remain available. Polling
-shares an identical pending query so slow readings can finish; older filters
-cannot replace a newer result. This adds no job creation, retry, remote probe or
-new backend/MCP45 tool.
+**Cluster status**
+- **Equipo**: one card per Spark with state, uptime, GPU use, temperature, power and clock, CPU use per core, unified memory, disk, CX7 links and the models it serves (head or worker). A Task Manager-style view per Spark with large charts, processes, containers, detected inference servers and network interfaces.
+- **Red CX7 - Pares de Sparks**: reads each pair's detected link state, speed, MTU and destination addresses from cached metrics. A manual read, not a connectivity or throughput test.
+- **Historial**: per-minute samples kept for 90 days by default (GPU use, CPU, unified memory, temperature, power), shown over 1 h to 30 days for all Sparks or one, with a crosshair, gaps and outages marked, and a summary per Spark including energy in kWh and, with a price set, the cost.
+- **Avisos**: a Spark whose probe keeps failing, or a model server whose health check keeps failing, opens an incident: a banner on every page, the list of outages with start and duration, an event on the family bus and a notification through the hub. Powering a Spark off from the app is recorded as expected.
+- **GPU errors**: new kernel messages of each Spark are read every minute and the ones reporting an NVIDIA Xid, a full-chip reset or a GSP failure are kept, flagged on the Spark card and announced. It only warns; it never restarts or resets anything.
 
-In **Equipo → Red CX7 · Pares de Sparks**, read and copy each pair's detected
-destination addresses with the existing `fabric_status` tool. Interface details
-show reported link state/speed, MTU and IPv4 addresses. This is a manual read of
-cached metrics, not a probe or connectivity/throughput test. The native lookup
-uses the first matching IPv4 /24 address on active CX7 interfaces; missing values
-do not prove a failed cable. The local query time is not a metrics timestamp.
+**Serving**
+- **Sirviendo**: live figures of every running inference server read from the metrics page each vLLM server publishes: generation and prompt-reading tokens per second with a ten-minute chart, requests running and waiting, KV cache use, tokens per step and acceptance of speculative decoding, median and 95th percentile of time to first token and between tokens, preemption warnings, tokens served so far and the base URL ready to copy.
+- **Clients** of each server, taken from the container's access log and, on this PC, from the operating system's connection table, with names you can edit.
+- **Velocidad**: a measurement you start explicitly (it asks first) that runs at 1, 8, 16 and 64 concurrent streams with unique prompts and reports aggregate and per-stream tokens per second, first-token p50 and p95 and failed requests. The last 20 results per server are kept, and **Comparar mediciones** compares two saved cards level by level.
+- **Capacidad**: the context the server accepts, the KV pool in tokens and what the recipe recorded as verified.
 
-In **Models → Jobs**, **View details** reads the selected job through the existing
-`job_get` tool. It shows its identifier, state, exit code, recorded creation and
-finish dates, progress/bytes when available, and the last up to 40 log lines.
-Creation does not mean execution started; missing values are explicit. Refresh
-reads that job again without starting, retrying or cancelling it. The existing
-six-line list summary and cancellation controls remain available.
+**Files and models**
+- **Archivos**: an explorer with every Spark as a drive: address bar, history, search, details and icon views, hidden files, preview of text, JSON, images, video and audio, in-place editing of text files, upload by drag and drop, download, new folder and file, rename, cut/copy/paste, sending to other Sparks over the CX7 cables, properties and a trash per Spark with restore. Writes stay inside the Spark user's home folder.
+- **Modelos**: what is loaded now with its OpenAI-compatible URL; recipes with Load, Unload and Restart; models on each disk with size, architecture, quantisation and context; downloads from Hugging Face (optionally only files matching patterns); copies between Sparks over CX7 (rsync, resumable, with an optional destination folder); jobs with progress, logs and detail view.
+- **Recipes**: a folder with `recipe.json` and the scripts that start and stop a server (`start.sh`, `stop.sh`, optional `health.sh` and `logs.sh`). Loading copies the folder to each Spark it uses, starts it as a detached job and waits until the head answers on its port; conflicts with another loaded recipe are reported and the other can be unloaded first. Measured recipes show input tokens, generation speed, time to first token and retrieval results from their recorded data.
+- **Recovery**: a managed recipe that degenerates (two complete structural canary failures) can be reloaded through the existing lifecycle, under the principal-model lock; see [`docs/recovery.md`](docs/recovery.md).
 
-- **Equipo**: one card per Spark with state, uptime, GPU use, temperature, power and clock, CPU use per core, unified memory, disk, CX7 links and the models it serves (head or worker). A Task Manager view per Spark (`#/spark/<id>`) with large charts, processes, containers, detected inference servers and network interfaces.
-- **Sirviendo**: live figures of every running inference server (recipes and servers started by hand), read from the Prometheus page each vLLM server publishes at `/metrics`: generation and prompt-reading tokens per second with a ten-minute chart, requests running and waiting, KV cache use, tokens per step and acceptance of speculative decoding when the server has a drafter, median and 95th percentile of the time to the first token and of the time between tokens (also as tokens per second per stream), a warning when requests were preempted, and the tokens served so far with the base URL ready to copy. The page refreshes every 2 s while it is open. Each server card ends with **Clientes**: who is using it, read from the HTTP access log of its container (vLLM does not record who asks, but its web server logs every request): per client address the requests per API (OpenAI chat, completions, Responses, Anthropic Messages, embeddings, other), requests per hour, errors (non-2xx), when it was last seen and a tag when it only polls `/health`, `/v1/models` or `/metrics`. Names are editable in place (`client_names` setting, `client_name_set` tool); this PC is named automatically, the Sparks by their own addresses, and expanding **This PC** lists the programs here that hold connections to the server right now (Hoard apps by their module, Faustus, assistants, otherwise the executable). The server's own 127.0.0.1 probes are only counted.
-- **Speed and capacity cards** (in each server card of Sirviendo, separate on purpose): **Velocidad** is a measurement you start with **Medir** (it asks first: it sends hundreds of streaming chat requests to the shared server for several minutes). It runs as a job at 1, 8, 16 and 64 concurrent streams with a unique prompt per request (a random nonce first, so the prefix cache never answers), one discarded warm-up round and the median of three rounds, and reports per level the aggregate output tokens per second, the median decode tokens per second of one stream, the time to the first token (p50 and p95) and the failed requests. Every generated token counts, reasoning included (the server's `usage` when it sends one, otherwise the stream chunks). Results are kept in `data/speedcards.json` (the last 20 per server). **Capacidad** is read live and costs two small requests: the context the server accepts (`/v1/models`), the KV pool in tokens (`vllm:cache_config_info`: blocks × block size, with how many full-context requests fit) and what the recipe recorded as verified. Tools: `speed_card` (read) and `speed_card_run` (starts the job; needs `confirm=true`; the caller should hold the principal-model lock; one run per server at a time; cancel with `job_cancel`).
-- **GPU errors**: every 60 s (`xid_interval_s`; `xid_watch` switches it off in Ajustes) it reads the new kernel messages of each Spark (`journalctl -k --since ... -o short-iso` over SSH) and keeps the lines that report an NVIDIA `Xid` (with its code), a full-chip reset (`NV_ERR_GPU_IN_FULLCHIP_RESET`) or a GSP error, timeout or failure, in `data/xid_events.json` (the last 500). They are listed at the top of Sirviendo, flagged on the Spark card and returned by the `xid_events` tool, and a new one is announced through the family hub's notification channel (`xid_notify`; the hub decides how). It only warns: it never restarts or resets anything.
-- **Escritorio (remote desktop)**: from a Spark's page, **Escritorio** shows and drives that Spark's own graphical desktop in the browser, like a remote-desktop program but built in. On demand, the Spark runs a TigerVNC server with an XFCE session on a virtual screen (no monitor or display manager needed); it exists only while someone looks. First time per Spark: **Instalar escritorio remoto** (confirmed; `sudo -n apt-get install` of TigerVNC and XFCE as a job, you can follow it in Modelos/Jobs). Then **Iniciar escritorio**, and the page connects with a bundled noVNC client: connect/disconnect, fullscreen, Ctrl+Alt+Supr and the connection state; it also works at phone width (viewing and touch). **Ajustar resolución** (the default on a wide window) changes the Spark's screen resolution to the size of the browser window and follows it when the window is resized or goes fullscreen; **Escalar** keeps the remote resolution and shrinks or stretches the picture; **Tamaño real** shows it pixel for pixel with scroll bars. The current remote size is shown in the toolbar. Clipboard, both ways and automatic (can be switched off): text copied on the Spark lands in this PC's clipboard at once; Ctrl+V, Ctrl+Shift+V or Shift+Insert inside the screen first puts this PC's clipboard (text, or an image) on the Spark's and then pastes; an image copied on the Spark comes to this PC when the pointer leaves the screen or with **Traer portapapeles del escritorio**, with a preview and **Guardar imagen**; **Enviar imagen…** sends an image file. Files dragged onto the screen are uploaded to the Spark's desktop folder. Settings (Ajustes > Escritorio remoto): `desktop_display` (default `:5`, VNC port 5905; each display keeps its own files under `~/.config/prometheus-desktop/d<n>`), `desktop_geometry` (1600x900, the size it starts with), `desktop_idle_min` (30; a watchdog on the Spark stops the session after that many minutes with no viewer, even if the app is closed; 0 = never) and `desktop_keymap` (es). Tools: `desktop_status`, `desktop_install` (`confirm`), `desktop_start`, `desktop_stop`, `desktop_clipboard_get` (text, or an image's size; the PNG with `include_image`) and `desktop_clipboard_set` (text). Routes: `GET /api/desktop/{node}/clipboard`, `POST /api/desktop/{node}/clipboard/image` (PNG body).
-- **Historial**: every probe sample is also kept per minute in `data/history.sqlite3` for `history_days` days (90 by default): GPU use (average and peak), CPU, unified memory, GPU temperature (average and peak) and power (average and peak). The page shows 1 h, 6 h, 24 h, 7 days or 30 days for all Sparks or one, one line per Spark with a crosshair that reads every value, gaps where there was no data and outages shaded, plus a summary per Spark (minutes with data, GPU average and peak, max temperature, power, energy in kWh and, with `energy_price_kwh`, the cost). Tool `metrics_history`, route `GET /api/history?node=&hours=`.
-- **Avisos (alerts)**: a Spark whose probe keeps failing for `alert_after_s` seconds (90), or a model server this app holds as running (or that it saw answering) whose health check keeps failing, opens an incident: a red banner on every page and a badge on Historial, the list of outages with start and duration, an event on the family bus (`prometheus.alert.spark_down` / `spark_up` / `server_down` / `server_up`) and, with `alert_notify`, a notification through the hub. Powering a Spark off from the app is recorded as expected and not notified; unloading a recipe is not an incident. Tool `alerts`, route `GET /api/alerts`; settings `alert_watch`, `alert_after_s`, `alert_notify`, `history_days`, `energy_price_kwh`. A Spark that stops answering without the app having powered it off now shows as unreachable, not as off.
-- **Archivos**: an explorer with every Spark as a drive. Address bar, back/forward/up, search, details and icon views, hidden files, preview (text with line numbers, JSON, images, video, audio) and in-place editing of text files, upload by drag and drop, download, new folder and file, rename (F2), cut/copy/paste (Ctrl+X/C/V), send to other Sparks over the CX7 cables, properties with folder size, and a trash per Spark with restore. Writes stay inside the home folder of the Spark user; the rest of the disk can be shown read-only.
-- **Modelos**: what is loaded now with its OpenAI-compatible URL; recipes with Load, Unload and Restart model actions (loading reports conflicts and offers to unload the other recipe first); models on each disk with size, architecture, quantisation and context; downloads from Hugging Face; copies between Sparks over CX7 (rsync, resumable); jobs with progress and logs. Restart stops every node in reverse start order before loading the same recipe again; a failed stop leaves a visible failure and can be retried, without starting a second copy.
-- **Power**: lock, sleep, shut down and restart one Spark or all of them; turning on uses wake-on-LAN with the wired MAC address learnt while the Spark was on. Before a shutdown the models of that Spark are unloaded.
-- **Endpoints for other programs**: `GET /api/endpoints` lists the inference servers running now (the default recipe first). Faustus reads it to use the Sparks as its default backend. `GET /api/serving` returns the live figures of those servers (`{endpoints, totals, poll_s, now}`; `?recipe=` filters, `?series=false` leaves out the chart points) and the `serving_stats` tool gives the same to an assistant (each endpoint carries `clients` unless `?clients=false` / `clients: false`). `sparks_overview` carries a short `serving` summary per endpoint.
+**Power and desktop**
+- Lock, sleep, shut down and restart one Spark or all of them; waking uses wake-on-LAN with the wired MAC address learnt while the Spark was on. Models are unloaded before a shutdown.
+- **Escritorio**: from a Spark's page, shows and drives its own graphical desktop in the browser. On demand the Spark runs a VNC server with an XFCE session on a virtual screen, used with a built-in noVNC client: fullscreen, resolution that follows the window, two-way clipboard, and it works at phone width. Installation is a confirmed job.
 
-![Sirviendo](docs/screens/sirviendo.png)
+**Endpoints for other programs**
+- `GET /api/endpoints` lists the inference servers running now, the default recipe first. `GET /api/serving` returns the live figures of those servers.
 
-![Archivos](docs/screens/archivos.png)
-
-![Modelos](docs/screens/modelos.png)
-
-## Compare saved measurements
-
-In Sirviendo, **Comparar mediciones** opens the latest 20 saved speed cards for that server. Choose a baseline, another measurement and a concurrency level: each row identifies its stream count and shows aggregate/per-stream throughput, first-token p50/p95, failed requests or measured requests, with absolute and percentage change. **Intercambiar** reverses the comparison. Missing readings remain unknown; a zero baseline has an absolute change but no percentage.
-
-Model, output limit, rounds, warm-up, end-of-sequence setting and token-count source are shown side by side, with differences marked. This reads existing cards without starting a benchmark. It compares recorded results, not causes: other server clients and unrecorded conditions may have changed.
-
-## Recipes
-
-Model downloads use one file worker and streamed HTTP, with Xet reconstruction
-disabled. This reduces transfer buffers while a model is loaded; it is not a
-global memory ceiling. The native MCP/API path downloaded 5.08 GB with verified
-SHA256 hashes and a 90 MiB downloader peak on 19 October 2026. Completed files
-and the destination remain reusable; byte-level continuation of an interrupted
-shard depends on the installed Hugging Face client. Model context, concurrent
-sequence capacity and the recipe's existing memory floor are unchanged.
-
-Measured recipes show input tokens, estimated generation speed, time to the first token and retrieval results. Expand “Show all measurements” for every recorded value, including nested baseline tests, retrieval positions and cache memory. These values come from the recipe's `measured` data; the panel does not run a benchmark or certify its results.
-
-A recipe is a folder with `recipe.json` and the scripts that start and stop a server (`start.sh`, `stop.sh`, optional `health.sh` and `logs.sh`). The recipes folder is a setting (default: `Sparks cluster/recipes` next to this repository). Loading copies the folder to each Spark it uses, runs `start.sh` on each one (the head first unless `start_order` says otherwise) as a detached job, and waits until the head answers on its port. Scripts get `PROM_NODE`, `PROM_ROLE`, `PROM_RANK`, `PROM_HEAD`, `PROM_HEAD_IP` (the head's address on the CX7 cable shared with this Spark), `PROM_PORT`, `PROM_MODEL`, `PROM_SERVED_NAME`, `PROM_MAX_MODEL_LEN`, `PROM_FABRIC_<NODE>` and `SPARK_NODE`. See `prometheus_hoard/recipes.py` for every key. A recipe with `"coexist": true` is a small server that runs beside the main model on the same Sparks (an embedding, reranking or decision model): it is never a conflict for the other recipes and they are not one for it, only its `memory_gb` is checked against free memory. `"kind"` (`chat` by default, or `decision`, `embedding`, `rerank`) travels with its endpoint so clients only offer chat endpoints as chat models. `"extra_ports"` lists other ports the recipe's own processes open on its Sparks, such as an engine behind a proxy on `port`: while the recipe is loaded, a server found there is part of the recipe, so loading another model unloads it with one confirmation instead of refusing it as a server started by hand.
-
-## Running
+## Run it
 
 ```
 python -m venv venv
@@ -85,56 +46,59 @@ venv\Scripts\pip install -r requirements.txt
 venv\Scripts\python -m prometheus_hoard        # http://127.0.0.1:5205
 ```
 
-The Sparks are reached with the SSH configuration of the PC (`~/.ssh/config` and its `Include`s; NVIDIA Sync writes the `Spark1`..`Spark3` aliases there). In Ajustes each Spark can have a different address or a jump host. `PROMETHEUS_FAKE=1` starts an invented three-Spark cluster in a temporary folder, for trying the interface without hardware.
+The Sparks are reached with the SSH configuration of the PC (`~/.ssh/config` and its `Include`s). In Ajustes each Spark can have a different address or a jump host. `PROMETHEUS_FAKE=1` starts an invented three-Spark cluster in a temporary folder, for trying the interface without hardware. The recipes folder is a setting.
 
-The MCP bridge is `python mcp_server.py` (53 tools; `faustus-plugin.json` describes it for Faustus and the Hoard Hub). `deploy_restart` reloads a recipe asynchronously, or waits with `wait=true`; follow `deployments` and `deploy_logs` for progress. Duplicate restarts are refused until reloading finishes. It keeps the recipe and endpoint configuration; restarting does not certify model output quality. Destructive tools (permanent deletes, emptying the trash, deleting a model, power actions, shell commands) need `confirm=true`.
+## Connect to Faustus and the Hoard family
 
-## What it cannot do
+- **MCP**: `python mcp_server.py` is the stdio bridge (about fifty tools); `faustus-plugin.json` describes it for Faustus and the Hoard Hub. Destructive tools (permanent deletes, emptying the trash, deleting a model, power actions, shell commands) need `confirm=true`.
+- **Tool groups**:
 
-- The serving figures come only from vLLM's `/metrics`: a server of another engine is listed with the reason it has no figures. Sampling runs every 2 s while the page or an assistant is looking and every 10 s otherwise; about 15 minutes of samples are kept in memory, so the charts start empty after a restart of the app.
-- Clients come from the container's access log, read on the head Spark with `docker logs --since` (`sudo -n docker` when the user is not in the docker group; with neither the card says so) every ~20 s while the page or an assistant looks and every 2 min otherwise; a summary of 24 h is kept in `data/clients.json`. One address is one device: programs on other computers are not told apart, a client behind a proxy shows the proxy, and the log only holds what the container has written since it started. Only on this PC are programs told apart, from the operating system's connection table (`psutil`): a program of another user may show without a name, and the list is a snapshot of what is connected now, not a history.
-- The tokens-served totals (`data/serving.json`, saved every 30 s and on exit) only count what the app saw while it was running. The servers' counters restart with their container; a drop is detected and the earlier value is added to an offset, but what was served while the app was closed (and a server that restarted in that gap) is lost.
-- The speed card measures the server as it is when asked: it competes with whatever else uses the model, a server that rejects `ignore_eos` may end some streams early, and a card of another engine's server works only if it speaks the OpenAI streaming chat API. The KV pool is the one vLLM reports for each worker; it is not a promise that a request of that length will be served. Nothing is saved from a cancelled run.
-- The GPU error watcher only sees what the kernel journal of the Spark user can read (`journalctl -k` without sudo), polls instead of following the log, and notifies only when the Hoard Hub answers; without a hub the event is still kept and shown. Spark clocks decide the cursor of each scan.
-- The remote desktop is a VNC session of its own, not the Spark's console: there is no GPU-accelerated 3D or audio in it, and what is open in it closes when it stops. Installing it needs `sudo` without a password for `apt-get` on that Spark (otherwise the page says so and shows the packages to install by hand). The VNC port listens on the Spark's loopback only and is reached through the app's SSH connection, so it is as private as that connection; the per-Spark session password (8 characters, VNC's limit) is kept in `data/desktop-passwords.json` and the app's page reads it to connect; assistants never receive it. The WebSocket carries only that page's own origin. The clipboard carries text and images (up to 25 MB), not files: drop files on the screen or use Archivos. Images need GTK for Python on the Spark (`python3-gi`, present on DGX OS); reading this PC's clipboard asks the browser's permission once. The history counts only what the app saw while it was running, and the energy is the GPU-reported power, not the wall.
-- It does not install drivers, change the network of the Sparks or build inference engines: recipes do that.
-- Shutting down, restarting and sleeping need `sudo` without a password (or a polkit rule) on the Sparks; without it the action is refused with the line to add.
-- Wake-on-LAN works only if the firmware of the Spark has it enabled.
-- Whole folders cannot be downloaded to the PC in one go (send them to another Spark or compress them first).
+| Area | Tools |
+| --- | --- |
+| Status | `sparks_overview`, `spark_status`, `spark_history`, `metrics_history`, `alerts`, `xid_events`, `fabric_status`, `endpoints` |
+| Serving | `serving_stats`, `client_name_set`, `speed_card`, `speed_card_run` |
+| Deployments | `deploy_start`, `deploy_stop`, `deploy_restart`, `deployments`, `deploy_logs`, `deploy_report_issue`, `deploy_recovery_status`, `recipes_list`, `recipe_write` |
+| Models and jobs | `models_list`, `model_download`, `model_copy`, `model_delete`, `jobs_list`, `job_get`, `job_cancel`, `hf_token_set` |
+| Files | `files_list`, `files_search`, `file_info`, `file_read`, `file_write`, `file_rename`, `files_copy`, `files_move`, `files_transfer`, `files_delete`, `folder_create`, `trash_list`, `trash_restore`, `trash_empty` |
+| Power and desktop | `power`, `spark_exec`, `desktop_status`, `desktop_start`, `desktop_stop`, `desktop_install`, `desktop_clipboard_get`, `desktop_clipboard_set` |
+| Settings | `settings_get`, `settings_set` |
 
-## Faustus assistant
+- **Copilot**: a floating Faustus button opens the assistant in a side panel. It is told which Spark, deployments and settings are open and any unsaved fields (the model-hub token and file contents are never sent); the view reloads in place after each turn and settings send only the fields you changed (`nodes_patch`, `nodes_remove`).
+- **Hub**: events `prometheus.alert.spark_down`, `spark_up`, `server_down` and `server_up`, notifications, and a lease on the principal model so only one app reloads it at a time.
+- **Skills**: `cluster-model-serving`, `deployment-patterns`, `docker-patterns` and `performance-optimization` are offered to connecting agents.
 
-Once the shared Hoard Link launcher is installed, the app shows the family's Faustus panel (a floating button). The conversation, the model and the tools live in Faustus; this app only tells the panel what is open.
+## Limits
 
-- **Context per view.** The panel receives the Spark open on its page as kind `spark` (online, power state, enabled, host and SSH data, error), up to 8 live deployments as `deployment` (recipe id, state, nodes, head, base URL, served model name, engine, step) and, on the settings page, `settings` (recipe and model folders, default endpoint, polling). A client being renamed is named as `client`. The view reports the page (`cluster`, `spark`, `serving`, `files`, `models`, `settings`). The model-hub access token is never sent.
-- **Unsaved fields.** The panel asks for them with the `prometheus:context-request` window event. The forms `settings-form`, `model-download-new` (no object yet), `client-name-form` and `file-editor` (only the file path and the draft length, not the text) answer with a `dirty` flag.
-- **Refresh.** When the assistant finishes a turn the open view reloads in place (`hoard:copilot-turn-end` / `window.hoardCopilot.onTurnEnd`). On the settings page, fields you did not touch follow the new values, typed ones stay, and Sparks you added stay.
-- **Saving.** The settings page sends only the changed fields to `settings_set`. New arguments: `nodes_patch` (`{spark id: fields to change}`; an id renames, an unknown id adds a Spark and needs `ssh`) and `nodes_remove` (ids to drop), so one Spark changes without resending the list. Other settings merge by key.
-- **Tests.** `node --test client/copilot-context.test.mjs` and `python -m pytest tests/test_settings_patch.py`.
+- Serving figures come only from vLLM's metrics page; a server of another engine is listed with the reason it has no figures. About 15 minutes of samples are kept in memory, so charts start empty after a restart.
+- One client address is one device: programs on other computers are not told apart and a proxy hides its clients. Token totals only count what the app saw while it ran.
+- The speed measurement competes with whatever else uses the model, and a server that rejects `ignore_eos` may end some streams early.
+- The remote desktop is a VNC session of its own, not the Spark's console: no 3D acceleration or audio, and what is open in it closes when it stops. Installing it needs passwordless `sudo` for `apt-get`.
+- Shutdown, restart and sleep need passwordless `sudo` (or a polkit rule) on the Sparks; wake-on-LAN needs it enabled in the firmware.
+- It does not install drivers, change the Sparks' network or build inference engines; recipes do that. Whole folders cannot be downloaded to the PC in one go.
 
-## Development
+## Project layout
+
+| Path | Contents |
+| --- | --- |
+| `prometheus_hoard/` | Python server: cluster, files, models, recipes, serving, speed card, history, alerts, desktop, power, agent tools |
+| `prometheus_hoard/static/` | Built interface (source in `client/`) |
+| `mcp_server.py` | Stdio MCP bridge |
+| `docs/` | Architecture, recovery, screenshots |
+| `tests/` | pytest suite |
 
 ```
 python -m pytest           # backend, against the invented cluster
-node --test client/download-request.test.mjs  # literal patterns and unchanged empty selection
 npx vite build             # interface into prometheus_hoard/static
-python scripts/make_icon.py --family ..\Icons
 ```
 
-## Structural generation recovery
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-deploy_report_issue reports typed degeneration of a running managed recipe and returns a background
-job promptly; deploy_recovery_status reads it. Two complete structural canary failures are required
-before the existing recipe lifecycle can reload. The worker acquires the principal-model lock and a Hub
-lease as Prometheus, waits for fresh idle metrics, revalidates ownership/configuration, and checks both
-canaries after reload. Length, fences and isolated logic mistakes never trigger it. A literal manifest
-oracle does not verify the generated algorithm; recovered describes only these structural postchecks.
-Canaries have not been validated against the recorded bad engine state. See [scope and limits](docs/recovery.md).
-Renewal failures remain visible; supervision continues until the lifecycle is stable, with a fresh
-coordination check before its load worker starts. Cancellation cannot abandon an active stop/start.
+<details>
+<summary>Screens</summary>
+
+![Sirviendo](docs/screens/sirviendo.png)
+![Archivos](docs/screens/archivos.png)
+![Modelos](docs/screens/modelos.png)
+</details>
 
 MIT licence.
-
-## Skills for the agents that connect
-
-This app carries procedures from the skill library of the family's workspace for the agents that connect to it: `cluster-model-serving`, `deployment-patterns`, `docker-patterns`, `performance-optimization`. They are named in what an agent reads on connecting, read with `skills_list` and `skill_read`, searched and assigned with `skills_library` and `skills_assign`, and offered as prompts. The person chooses them on the skills page (`/api/agent/skills/page`) or in the hub's Skills tab; the `skills` block of `faustus-plugin.json` holds what the app asks for by default.
