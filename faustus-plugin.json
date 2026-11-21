@@ -25,6 +25,10 @@
     "outage-alerts"
   ],
   "x-family": {
+    "isolated_instance": {
+      "data_env": "PROMETHEUS_DATA_DIR",
+      "port_env": "PROMETHEUS_PORT"
+    },
     "copilot": true
   },
   "placeholders": [
